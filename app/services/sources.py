@@ -11,7 +11,7 @@ Sifat siyosati:
 import httpx
 import math
 from datetime import datetime
-from app.config import NCBI_API_KEY, NCBI_EMAIL
+from app.config import NCBI_API_KEY, NCBI_EMAIL, SEMANTIC_SCHOLAR_API_KEY
 
 PUBMED_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 PUBMED_FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
@@ -116,14 +116,18 @@ async def search_semantic_scholar(query: str, max_results: int = 15) -> list[dic
     """
     Semantic Scholar'dan qidiradi. citationCount ham so'raladi - bu manba sifatini
     baholashda muhim mezon (ko'p iqtibos qilingan maqola ko'proq ishonch uyg'otadi).
+
+    API kalit bo'lsa `x-api-key` sarlavhasida yuboriladi — aks holda kalitsiz
+    foydalanuvchilar bilan umumiy limit bo'lishilib, 429 (Too Many Requests) olinadi.
     """
+    headers = {"x-api-key": SEMANTIC_SCHOLAR_API_KEY} if SEMANTIC_SCHOLAR_API_KEY else {}
     async with httpx.AsyncClient(timeout=30.0) as client:
         params = {
             "query": query,
             "limit": max_results,
             "fields": "title,abstract,authors,year,venue,externalIds,url,citationCount",
         }
-        resp = await client.get(SEMANTIC_SCHOLAR_URL, params=params)
+        resp = await client.get(SEMANTIC_SCHOLAR_URL, params=params, headers=headers)
         resp.raise_for_status()
         data = resp.json().get("data", [])
 
