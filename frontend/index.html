@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maqola Generator</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #f7f7f8; color: #1a1a1a; }
+  h1 { font-size: 22px; }
+  .card { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  input, select, textarea, button { width: 100%; padding: 12px; margin-top: 8px; border-radius: 8px; border: 1px solid #ddd; font-size: 15px; box-sizing: border-box; }
+  button { background: #111; color: white; border: none; cursor: pointer; font-weight: 600; margin-top: 14px; }
+  button:disabled { background: #999; cursor: not-allowed; }
+  .topic-btn { display: block; text-align: left; background: #f0f0f2; color: #111; margin-top: 8px; padding: 10px 14px; }
+  .topic-btn:hover { background: #e5e5e8; }
+  #status { color: #666; font-size: 14px; margin-top: 10px; }
+  #article-output { white-space: pre-wrap; line-height: 1.6; font-size: 15px; }
+  .review-box { background: #fff8e6; border: 1px solid #f0d98c; border-radius: 8px; padding: 14px; margin-top: 16px; font-size: 14px; }
+  .sources-list { font-size: 13px; color: #555; }
+  label { font-weight: 600; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<h1>📄 Maqola Generator</h1>
+
+<div class="card">
+  <label>1-qadam: Yo'nalish yoki mavzu</label>
+  <input id="direction" placeholder="masalan: kardiologiya, yoki aniq mavzu">
+  <button onclick="getTopics()">Mavzular taklif qil</button>
+  <div id="topics-container"></div>
+</div>
+
+<div class="card">
+  <label>2-qadam: Sozlamalar</label>
+  <select id="citation-style">
+    <option value="vancouver">Vancouver (tibbiyot uchun standart)</option>
+    <option value="apa">APA</option>
+  </select>
+  <select id="is-medical">
+    <option value="true">Tibbiyot/biomeditsina mavzusi (PubMed ishlatiladi)</option>
+    <option value="false">Boshqa soha (Semantic Scholar ishlatiladi)</option>
+  </select>
+  <select id="language">
+    <option value="en">Ingliz tilida</option>
+    <option value="uz">O'zbek tilida</option>
+    <option value="ru">Rus tilida</option>
+  </select>
+  <button onclick="generateArticle()" id="gen-btn">Maqola yaratish</button>
+  <div id="status"></div>
+</div>
+
+<div class="card" id="result-card" style="display:none">
+  <h2>Natija</h2>
+  <div id="article-output"></div>
+  <div class="review-box" id="review-output"></div>
+  <div class="sources-list" id="sources-output"></div>
+  <button onclick="downloadDocx()">Word (.docx) yuklab olish</button>
+</div>
+
+<script>
+  const API_BASE = window.location.hostname === "localhost"
+    ? "http://localhost:8000"
+    : "https://SIZNING-RENDER-URL.onrender.com"; // Render'ga chiqargach shu yerni almashtiring
+
+  let selectedTopic = "";
+  let currentSessionId = "";
+
+  async function getTopics() {
+    const direction = document.getElementById("direction").value.trim();
+    if (!direction) return alert("Yo'nalish yozing");
+
+    const container = document.getElementById("topics-container");
+    container.innerHTML = "<p id='status'>Mavzular yuklanmoqda...</p>";
+
+    try {
+      const resp = await fetch(`${API_BASE}/topics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ direction })
+      });
+      const data = await resp.json();
+      container.innerHTML = "";
+      data.topics.forEach(topic => {
+        const btn = document.createElement("button");
+        btn.className = "topic-btn";
+        btn.textContent = topic;
+        btn.onclick = () => {
+          selectedTopic = topic;
+          document.getElementById("direction").value = topic;
+          container.innerHTML = `<p style="color:green">✓ Tanlandi: ${topic}</p>`;
+        };
+        container.appendChild(btn);
+      });
+    } catch (e) {
+      container.innerHTML = `<p style="color:red">Xato: ${e.message}</p>`;
+    }
+  }
+
+  async function generateArticle() {
+    const topic = selectedTopic || document.getElementById("direction").value.trim();
+    if (!topic) return alert("Avval mavzu tanlang yoki yozing");
+
+    const btn = document.getElementById("gen-btn");
+    const status = document.getElementById("status");
+    btn.disabled = true;
+    status.textContent = "Manbalar qidirilmoqda, maqola yozilmoqda va tekshirilmoqda... (1-2 daqiqa)";
+
+    try {
+      const resp = await fetch(`${API_BASE}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic,
+          is_medical: document.getElementById("is-medical").value === "true",
+          citation_style: document.getElementById("citation-style").value,
+          language: document.getElementById("language").value
+        })
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || "Noma'lum xato");
+      }
+
+      const data = await resp.json();
+      currentSessionId = data.session_id;
+
+      document.getElementById("result-card").style.display = "block";
+      document.getElementById("article-output").textContent = data.article_text;
+
+      const review = data.review_summary;
+      document.getElementById("review-output").innerHTML = `
+        <strong>So'z soni:</strong> ${data.word_count} | <strong>Qayta yozishlar:</strong> ${data.rewrite_attempts}<br>
+        <strong>Gemini tekshiruvi:</strong> ${review.manbalarga_moslik || "—"}<br>
+        <strong>Xulosa:</strong> ${review.umumiy_baho || "—"}
+      `;
+
+      document.getElementById("sources-output").innerHTML =
+        "<strong>Ishlatilgan manbalar:</strong><br>" +
+        data.sources.map(s => `• ${s.title} (${s.year})`).join("<br>");
+
+      status.textContent = "Tayyor!";
+    } catch (e) {
+      status.textContent = `Xato: ${e.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function downloadDocx() {
+    if (!currentSessionId) return;
+    window.open(`${API_BASE}/download/${currentSessionId}`, "_blank");
+  }
+</script>
+
+</body>
+</html>
