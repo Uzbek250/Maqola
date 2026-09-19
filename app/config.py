@@ -8,7 +8,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 NCBI_API_KEY = os.getenv("NCBI_API_KEY", "")  # ixtiyoriy, PubMed uchun (bo'lmasa ham ishlaydi, sekinroq)
 NCBI_EMAIL = os.getenv("NCBI_EMAIL", "example@example.com")  # NCBI talab qiladi
 
-GPT_MODEL = os.getenv("GPT_MODEL", "gpt-5.6-sol")
+GPT_MODEL = os.getenv("GPT_MODEL", "gpt-5.6-luna")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 if not OPENAI_API_KEY:
