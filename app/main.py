@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 import io
+import os
 
 from app.services import sources as sources_service
 from app.services import gemini_service
@@ -17,6 +18,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+FRONTEND_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
 
 SESSION_STORE: dict[str, dict] = {}
 
@@ -38,6 +41,11 @@ class GenerateRequest(BaseModel):
 
 @app.get("/")
 async def root():
+    return FileResponse(FRONTEND_PATH)
+
+
+@app.get("/health")
+async def health():
     return {"status": "ishlayapti"}
 
 
