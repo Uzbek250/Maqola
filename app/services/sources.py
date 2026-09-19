@@ -90,6 +90,13 @@ async def search_pubmed(query: str, max_results: int = 15) -> list[dict]:
         return _parse_pubmed_xml(fetch_resp.text)
 
 
+def _text(el) -> str:
+    """Elementning barcha matnini yig'adi (ichma-ich teglar ham: <i>, <sup>)."""
+    if el is None:
+        return ""
+    return "".join(el.itertext()).strip()
+
+
 def _parse_pubmed_xml(xml_text: str) -> list[dict]:
     import xml.etree.ElementTree as ET
 
@@ -98,29 +105,50 @@ def _parse_pubmed_xml(xml_text: str) -> list[dict]:
 
     for article in root.findall(".//PubmedArticle"):
         try:
-            pmid = article.findtext(".//PMID", default="")
-            title = article.findtext(".//ArticleTitle", default="").strip()
+            # MUHIM: faqat ANIQ yo'llar ishlatiladi (".//" EMAS).
+            # ".//ArticleId" yozuv ichidagi ReferenceList (maqolaning o'z
+            # adabiyotlar ro'yxati) elementlarini ham topib, IQTIBOS QILINGAN
+            # boshqa maqolaning DOI'sini olib qo'yardi — natijada manbalar
+            # ro'yxatida jurnal va DOI bir-biriga mos kelmasdi.
+            # PubMed XML tuzilishi:
+            #   MedlineCitation/Article/...            <- maqolaning O'ZI
+            #   PubmedData/ArticleIdList/ArticleId     <- maqolaning O'Z ID lari
+            #   PubmedData/ReferenceList/...           <- iqtiboslar (bizga kerak emas)
 
-            abstract_parts = article.findall(".//AbstractText")
-            abstract = " ".join(a.text or "" for a in abstract_parts).strip()
+            pmid = _text(article.find("MedlineCitation/PMID"))
+
+            art = article.find("MedlineCitation/Article")
+            if art is None:
+                continue
+
+            title = _text(art.find("ArticleTitle"))
+
+            abstract_parts = art.findall("Abstract/AbstractText")
+            abstract = " ".join(_text(a) for a in abstract_parts).strip()
 
             authors = []
-            for author in article.findall(".//Author"):
-                last = author.findtext("LastName", default="")
-                initials = author.findtext("Initials", default="")
+            for author in art.findall("AuthorList/Author"):
+                last = _text(author.find("LastName"))
+                initials = _text(author.find("Initials"))
                 if last:
                     authors.append(f"{last} {initials}".strip())
 
-            journal = article.findtext(".//Journal/Title", default="")
-            year_text = article.findtext(".//PubDate/Year", default="")
-            if not year_text:
-                medline_date = article.findtext(".//PubDate/MedlineDate", default="")
+            journal = _text(art.find("Journal/Title"))
+            if not journal:  # ba'zi yozuvlarda faqat qisqartma bo'ladi
+                journal = _text(article.find("MedlineCitation/MedlineJournalInfo/MedlineTA"))
+
+            pubdate = art.find("Journal/JournalIssue/PubDate")
+            year_text = _text(pubdate.find("Year")) if pubdate is not None else ""
+            if not year_text and pubdate is not None:
+                medline_date = _text(pubdate.find("MedlineDate"))
                 year_text = medline_date[:4] if medline_date else ""
 
+            # DOI — faqat maqolaning o'z ArticleIdList'idan
             doi = ""
-            for el_id in article.findall(".//ArticleId"):
+            for el_id in article.findall("PubmedData/ArticleIdList/ArticleId"):
                 if el_id.get("IdType") == "doi":
-                    doi = el_id.text or ""
+                    doi = _text(el_id)
+                    break
 
             if title and len(abstract) >= MIN_ABSTRACT_LENGTH:
                 results.append({

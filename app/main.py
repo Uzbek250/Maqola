@@ -162,6 +162,21 @@ async def generate_article(req: GenerateRequest):
             "umumiy_baho": "AI tekshiruvi vaqtincha ishlamadi, maqola tekshiruvsiz berildi.",
         }
 
+    # So'z soni talabdan tashqarida bo'lsa — aniq raqam bilan alohida moslashtirish.
+    # Umumiy "qayta yozish" ko'rsatmasi buni ishonchli bajarmaydi (tekshirildi:
+    # 2693 so'z chiqdi, 2500 limitidan oshdi va 2 marta qayta yozish ham tushirmadi).
+    before = len(article_text.split())
+    if not (MIN_WORDS <= before <= MAX_WORDS):
+        try:
+            article_text = await gpt_service.adjust_length(
+                article_text, found_sources, req.language, MIN_WORDS, MAX_WORDS
+            )
+            after = len(article_text.split())
+            logger.info("So'z soni moslandi: %s -> %s", before, after)
+            review["uzunlik_muammosi"] = not (MIN_WORDS <= after <= MAX_WORDS)
+        except Exception:
+            logger.exception("Uzunlikni moslashtirib bo'lmadi — mavjud matn qoldiriladi")
+
     session_id = req.topic[:40].replace(" ", "_")
     SESSION_STORE[session_id] = {
         "topic": req.topic,

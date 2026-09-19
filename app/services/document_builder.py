@@ -37,22 +37,28 @@ def _format_reference(source: dict, index: int, style: str = "vancouver") -> str
 def build_docx(title: str, article_text: str, sources: list[dict], citation_style: str = "vancouver") -> bytes:
     doc = Document()
 
-    doc.add_heading(_clean_inline(title), level=1)
+    # Maqolaning O'Z H1 sarlavhasi bo'lsa — hujjat sarlavhasi sifatida shuni ishlatamiz.
+    # Sabab: foydalanuvchi kiritgan mavzu bir tilda, maqola matni boshqa tilda bo'lishi
+    # mumkin (masalan o'zbekcha mavzu + inglizcha maqola) — natijada aralash hujjat chiqardi.
+    blocks = [b.strip() for b in article_text.split("\n\n") if b.strip()]
+    doc_title = _clean_inline(title)
+    body_blocks = blocks
+    if blocks:
+        m0 = re.match(r"^#\s+(.*)$", blocks[0], re.S)
+        if m0:
+            h1 = _clean_inline(m0.group(1))
+            if h1:
+                doc_title = h1
+                body_blocks = blocks[1:]
 
-    for raw in article_text.split("\n\n"):
-        block = raw.strip()
-        if not block:
-            continue
+    doc.add_heading(doc_title, level=1)
 
+    for block in body_blocks:
         # Markdown sarlavha: "# ...", "## ..." -> Word sarlavhasi
         m = re.match(r"^(#{1,6})\s+(.*)$", block, re.S)
         if m:
             level = min(len(m.group(1)), 4)
-            # Maqola ko'pincha "# Sarlavha" bilan boshlanadi — u hujjat sarlavhasini
-            # takrorlaydi, shuning uchun tashlab ketiladi.
-            heading_text = _clean_inline(m.group(2))
-            if not (level == 1 and heading_text.lower() == _clean_inline(title).lower()):
-                doc.add_heading(heading_text, level=level)
+            doc.add_heading(_clean_inline(m.group(2)), level=level)
             continue
 
         # Qalin yozilgan "sarlavha" qatorlari (eski format): "1. Kirish"

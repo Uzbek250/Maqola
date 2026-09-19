@@ -29,6 +29,10 @@ def is_reasoning_model(model: str) -> bool:
     return model.lower().startswith(REASONING_PREFIXES)
 
 
+def _word_count(text: str) -> int:
+    return len(text.split())
+
+
 def _build_payload(model: str, system_prompt: str, user_prompt: str,
                    temperature: float, max_tokens: int) -> dict:
     """Modelga mos so'rov tanasini yig'adi (eski va yangi GPT'lar uchun)."""
@@ -218,7 +222,25 @@ QAT'IY QOIDALAR:
 3. Gaplar uzunligi va tuzilishi XILMA-XIL bo'lsin. Ketma-ket bir xil uzunlikdagi yoki bir xil
    grammatik tuzilishdagi gaplar yozish taqiqlanadi - bu AI matniga xos belgi.
 4. Paragraflar orasida tabiiy o'tish bo'lsin, mexanik ravishda emas.
-5. Maqola {MIN_WORDS}-{MAX_WORDS} so'z oralig'ida bo'lishi SHART. Bundan qisqa yoki uzun bo'lmasin."""
+5. Maqola {MIN_WORDS}-{MAX_WORDS} so'z oralig'ida bo'lishi SHART. Bundan qisqa yoki uzun bo'lmasin.
+6. SARLAVHA HALOLLIGI: sarlavha maqolada HAQIQATDA bor narsani va'da qilsin. Agar manbalar
+   biror mexanizmni bevosita ko'rsatmasa, sarlavhada "Potential", "Possible", "Hypothetical",
+   "Implications" kabi ehtiyotkor so'zlarni ishlat - to'g'ridan-to'g'ri dalil borga o'xshab
+   ko'rsatma. Mashhur atamani (masalan, dori yoki signal yo'lini) sarlavhaga maqolada u haqda
+   yetarli ma'lumot bo'lmasa qo'yma.
+7. MEXANIZM CHUQURDGI: mexanizm qismida, agar manbalarda aytilgan bo'lsa, ANIQ molekulyar
+   yo'llarni nomla (retseptorlar, fermentlar, genlar, sitokinlar, metabolitlar - masalan
+   "SCFA -> FFAR2/3", "bile acids -> TGR5", "AMPK", "mTOR", "circadian clock genlari").
+   Manbalarda bu darajadagi ma'lumot bo'lmasa, umumiy gap bilan cheklan va buni ochiq ayt.
+8. ZIDDIYATLARNI MUHOKAMA QIL: manbalar bir-biriga qarama-qarshi natija bersa (birida
+   yaxshilanish bor, boshqasida farq yo'q), buni YASHIRMA - alohida paragrafda ochiq
+   solishtir: nima uchun farq bo'lishi mumkin (dizayn, populyatsiya, davomiylik, doza).
+   Faqat "bir ovozdan" ko'rinish berish ilmiy noaniqlikni yashiradi.
+9. CHEKLOVLARNI OCHIQ YOZ: "Xulosa"dan oldin, agar mavjud bo'lsa, dalillarning zaif joylarini
+   (kichik namuna, qisqa kuzatuv, heterojenlik) alohida belgila.
+10. Maqolani BITTA markdown H1 sarlavha bilan boshla (# Sarlavha), keyin bo'limlar H2 (##) bilan
+    bo'lsin. Sarlavha va butun matn {lang_name} tilida bo'lishi SHART - sarlavhani boshqa
+    tilda yozma."""
 
     user_prompt = f"""Mavzu: {topic}
 
@@ -280,3 +302,53 @@ TUZATISH TAVSIYALARI:
 Yuqoridagi barcha muammolarni hisobga olib, to'liq tuzatilgan matnni yoz."""
 
     return await _call_gpt(system_prompt, user_prompt, temperature=0.75, max_tokens=4000)
+
+
+async def adjust_length(
+    article_text: str,
+    sources: list[dict],
+    language: str = "en",
+    min_words: int = 1800,
+    max_words: int = 2500,
+) -> str:
+    """
+    Maqolani belgilangan so'z oralig'iga keltiradi.
+
+    Nega alohida funksiya: umumiy "qayta yozish" ko'rsatmasi uzunlikni ishonchli
+    tushirmaydi — model yana uzun yozadi. Aniq raqam va aniq vazifa berilganda
+    natija ancha barqaror bo'ladi.
+    """
+    current = _word_count(article_text)
+    if min_words <= current <= max_words:
+        return article_text
+
+    lang_name = LANGUAGE_NAMES.get(language, "ingliz")
+    target = (min_words + max_words) // 2
+    action = "qisqartir" if current > max_words else "kengaytir"
+
+    system_prompt = (
+        f"Sen ilmiy matn muharririsan. Vazifang - matnni {action}ish, mazmunini "
+        f"o'zgartirmasdan. Yangi fakt, raqam yoki manba QO'SHMA."
+    )
+    user_prompt = f"""Quyidagi ilmiy maqola {current} so'zdan iborat. Uni {action}ib,
+aniq {target} so'zga keltir (ruxsat: {min_words}-{max_words}).
+
+QAT'IY TALABLAR:
+- Matn {lang_name} tilida qolsin (tarjima qilma).
+- Bo'limlar tuzilishi va markdown sarlavhalar (#, ##) saqlansin.
+- [1], [2] kabi manba havolalari saqlansin va to'g'ri joyda qolsin.
+- Yangi fakt, raqam, statistika QO'SHMA. Faqat mavjudini ixchamlashtir.
+- Manba abstraktlarida yo'q hech narsa yozma.
+
+MANBALAR (faqat shularga tayan):
+{_format_sources_for_prompt(sources)}
+
+MAQOLA:
+{article_text}
+
+Endi {action}ilgan to'liq matnni yoz (boshqa izoh qo'shma)."""
+
+    result = await _call_gpt(system_prompt, user_prompt, temperature=0.4, max_tokens=4000)
+    new_count = _word_count(result)
+    logger.info("Uzunlik moslandi: %s -> %s so'z (nishon %s)", current, new_count, target)
+    return result

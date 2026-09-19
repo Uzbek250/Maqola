@@ -140,8 +140,14 @@ async def review_article(
     """
     lang_name = LANGUAGE_NAMES.get(language, "ingliz")
     unknown_year = "yil noma'lum"
+    # MUHIM: tekshiruvchiga abstraktning TO'LIQ matni beriladi. Ilgari faqat birinchi
+    # 200 belgi berilardi — natijada yozuvchi modelning abstraktning qolgan qismidan
+    # olgan LEGITIM ma'lumotlari "hallucination" deb belgilanardi (yolg'on ayblov),
+    # behuda qayta yozish ishga tushardi va maqola sifati pasayardi.
+    # Har bir abstrakt 4000 belgi bilan cheklanadi — kontekst chegarasini himoya qilish uchun.
     sources_summary = "\n".join(
-        f"- [{i+1}] {s['title']} ({s.get('year') or unknown_year}) - {s['abstract'][:200]}..."
+        f"- [{i+1}] {s['title']} ({s.get('year') or unknown_year})\n"
+        f"  ABSTRAKT: {s['abstract'][:4000]}"
         for i, s in enumerate(sources)
     )
     word_count = _word_count(article_text)
@@ -159,8 +165,12 @@ talab qilingan uzunlik {min_words}-{max_words} so'z):
 {article_text}
 
 QATTIQ TEKSHIR:
-1. HALLUCINATION: maqoladagi HAR BIR da'vo, raqam, statistika berilgan manbalarda bormi?
-   Manbada yo'q narsa aytilgan bo'lsa - bu ENG JIDDIY muammo, alohida ko'rsat.
+1. HALLUCINATION: quyida HAR BIR manbaning TO'LIQ abstrakti berilgan (qisqartirilmagan).
+   Maqoladagi har bir da'vo, raqam, statistika shu to'liq abstraktlarda bormi - tekshir.
+   FAQAT abstraktlarda umuman yo'q narsani "hallucination" deb belgila. Abstraktda bor
+   narsani uydirma deb belgilash QAT'IYAN TAQIQLANADI - bu noto'g'ri ayblov bo'ladi va
+   maqolani behuda buzadi. Ishonching komil bo'lmasa, "hallucination_topildi" ni false
+   qoldir va shubhani "topilgan_muammolar" ga yumshoq yoz.
 2. Manbalarga to'g'ri ishora qilinganmi ([1], [2] raqamlari mantiqan to'g'ri joyda ishlatilganmi)?
 3. Mantiqiy uzilish yoki qarama-qarshilik bormi?
 4. Til: matn chindan ham {lang_name} tilida yozilganmi, aralash til yo'qmi?
