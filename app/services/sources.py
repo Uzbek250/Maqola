@@ -8,10 +8,14 @@ Sifat siyosati:
 - Semantic Scholar uchun citation soni bo'yicha saralanadi (ko'proq iqtibos = ko'proq ishonchli manba)
 - Abstract'i yo'q yoki juda qisqa manbalar chiqarib tashlanadi (AI'ga foyda bermaydi)
 """
+import logging
+
 import httpx
 import math
 from datetime import datetime
 from app.config import NCBI_API_KEY, NCBI_EMAIL, SEMANTIC_SCHOLAR_API_KEY
+
+logger = logging.getLogger(__name__)
 
 PUBMED_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 PUBMED_FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
@@ -19,6 +23,31 @@ SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 
 MIN_ABSTRACT_LENGTH = 200  # bundan qisqa abstract AI uchun deyarli foydasiz
 RECENCY_YEARS = 6  # shundan eski maqolalar "eskirgan" deb hisoblanadi (chiqarilmaydi, faqat pastroq saralanadi)
+
+
+async def _pubmed_get(client: httpx.AsyncClient, url: str, params: dict) -> httpx.Response:
+    """
+    PubMed'ga so'rov yuboradi. Kalit rad etilgan bo'lsa (NCBI HTTP 400 qaytaradi),
+    KALITSIZ qayta urinadi — shunda ilova butunlay ishlamay qolmaydi.
+    """
+    resp = await client.get(url, params=params)
+
+    if resp.status_code == 400 and params.get("api_key"):
+        logger.warning("NCBI 400 qaytardi — API kalit rad etilgan bo'lishi mumkin. "
+                       "Kalitsiz qayta urinilmoqda (limit sekundiga 3 ta).")
+        without_key = {k: v for k, v in params.items() if k != "api_key"}
+        resp = await client.get(url, params=without_key)
+
+    resp.raise_for_status()
+
+    # Ba'zi holatlarda NCBI xatoni 200 bilan birga tana ichida qaytaradi
+    try:
+        body = resp.json()
+        if isinstance(body, dict) and body.get("error"):
+            logger.warning("NCBI javobida xato: %s", body.get("error"))
+    except Exception:
+        pass
+    return resp
 
 
 async def search_pubmed(query: str, max_results: int = 15) -> list[dict]:
@@ -38,9 +67,9 @@ async def search_pubmed(query: str, max_results: int = 15) -> list[dict]:
         if NCBI_API_KEY:
             search_params["api_key"] = NCBI_API_KEY
 
-        resp = await client.get(PUBMED_SEARCH_URL, params=search_params)
-        resp.raise_for_status()
-        ids = resp.json().get("esearchresult", {}).get("idlist", [])
+        resp = await _pubmed_get(client, PUBMED_SEARCH_URL, search_params)
+        payload = resp.json()
+        ids = payload.get("esearchresult", {}).get("idlist", [])
 
         if not ids:
             return []
@@ -55,7 +84,7 @@ async def search_pubmed(query: str, max_results: int = 15) -> list[dict]:
         if NCBI_API_KEY:
             fetch_params["api_key"] = NCBI_API_KEY
 
-        fetch_resp = await client.get(PUBMED_FETCH_URL, params=fetch_params)
+        fetch_resp = await _pubmed_get(client, PUBMED_FETCH_URL, fetch_params)
         fetch_resp.raise_for_status()
 
         return _parse_pubmed_xml(fetch_resp.text)
