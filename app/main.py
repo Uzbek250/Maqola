@@ -3,12 +3,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 import io
+import logging
 import os
 
 from app.services import sources as sources_service
 from app.services import gemini_service
 from app.services import gpt_service
 from app.services import document_builder
+
+# Xatolarning haqiqiy sababi Render loglarida ko'rinishi uchun
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("app.main")
 
 app = FastAPI(title="Maqola Generator API")
 
@@ -56,7 +64,12 @@ async def get_topics(req: TopicRequest):
         topics = await gemini_service.generate_topics(req.direction)
         return {"topics": topics}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Mavzu generatsiyasida xato: {e}")
+        # Ichki tafsilot (kalit, URL) mijozga chiqmasligi uchun logga yozamiz
+        logger.exception("Mavzu generatsiyasida xato")
+        raise HTTPException(
+            status_code=502,
+            detail="AI xizmatiga ulanib bo'lmadi. Bir ozdan keyin qayta urinib ko'ring.",
+        )
 
 
 @app.post("/generate")
@@ -83,25 +96,53 @@ async def generate_article(req: GenerateRequest):
             detail="Bu mavzu bo'yicha haqiqiy ilmiy manba topilmadi. Mavzuni kengroq yoki boshqacha yozib ko'ring.",
         )
 
-    outline = await gpt_service.generate_outline(req.topic, found_sources, req.language)
+    try:
+        outline = await gpt_service.generate_outline(req.topic, found_sources, req.language)
 
-    article_text = await gpt_service.write_article(
-        req.topic, found_sources, req.citation_style, req.language, outline=outline
-    )
-
-    review = await gemini_service.review_article(
-        article_text, found_sources, req.language, MIN_WORDS, MAX_WORDS
-    )
-
-    rewrite_count = 0
-    while gemini_service.needs_rewrite(review) and rewrite_count < MAX_REWRITE_ATTEMPTS:
-        article_text = await gpt_service.rewrite_article(
-            article_text, review, found_sources, req.language
+        article_text = await gpt_service.write_article(
+            req.topic, found_sources, req.citation_style, req.language, outline=outline
         )
+    except Exception:
+        logger.exception("Maqola yozishda xato (mavzu=%r)", req.topic)
+        raise HTTPException(
+            status_code=502,
+            detail="Maqola yozishda AI xizmatida xatolik yuz berdi. Qayta urinib ko'ring.",
+        )
+
+    # Tekshirish bosqichi. MUHIM: bu bosqich yiqilsa ham maqola YO'QOLMASLIGI kerak —
+    # matn allaqachon yozilgan, foydalanuvchiga yetkazilishi shart.
+    review = None
+    try:
         review = await gemini_service.review_article(
             article_text, found_sources, req.language, MIN_WORDS, MAX_WORDS
         )
-        rewrite_count += 1
+    except Exception:
+        logger.exception("Gemini tekshiruvi ishlamadi — maqola tekshiruvsiz qaytariladi")
+
+    rewrite_count = 0
+    if review is not None:
+        while gemini_service.needs_rewrite(review) and rewrite_count < MAX_REWRITE_ATTEMPTS:
+            try:
+                article_text = await gpt_service.rewrite_article(
+                    article_text, review, found_sources, req.language
+                )
+                review = await gemini_service.review_article(
+                    article_text, found_sources, req.language, MIN_WORDS, MAX_WORDS
+                )
+            except Exception:
+                logger.exception("Qayta yozish/tekshirishda xato — mavjud matn saqlanadi")
+                break
+            rewrite_count += 1
+
+    if review is None:
+        review = {
+            "manbalarga_moslik": "tekshirilmadi",
+            "hallucination_topildi": False,
+            "uzunlik_muammosi": False,
+            "topilgan_muammolar": [],
+            "tuzatish_tavsiyalari": [],
+            "umumiy_baho": "AI tekshiruvi vaqtincha ishlamadi, maqola tekshiruvsiz berildi.",
+        }
 
     session_id = req.topic[:40].replace(" ", "_")
     SESSION_STORE[session_id] = {

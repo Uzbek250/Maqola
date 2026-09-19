@@ -6,10 +6,49 @@ GPT API: 3 bosqichli yozish tizimi.
 
 MUHIM: har bosqichda "faqat berilgan manbalarga tayan, hech narsa to'qima" qat'iy ta'kidlanadi.
 """
+import logging
+
 import httpx
 from app.config import OPENAI_API_KEY, GPT_MODEL
 
+logger = logging.getLogger(__name__)
+
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+
+# Yangi GPT-5.x / o-seriya "reasoning" modellari eski parametrlarni qabul qilmaydi:
+#   - "max_tokens" o'rniga "max_completion_tokens"
+#   - "temperature" faqat standart (1) qiymatda ishlaydi, boshqa qiymat 400 beradi
+# Shuning uchun so'rov tanasi modelga qarab yig'iladi.
+REASONING_PREFIXES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
+
+# Asosiy model 400/404 bersa, navbat bilan shular sinaladi
+FALLBACK_GPT_MODELS = ["gpt-5.1", "gpt-5", "gpt-4.1"]
+
+
+def is_reasoning_model(model: str) -> bool:
+    return model.lower().startswith(REASONING_PREFIXES)
+
+
+def _build_payload(model: str, system_prompt: str, user_prompt: str,
+                   temperature: float, max_tokens: int) -> dict:
+    """Modelga mos so'rov tanasini yig'adi (eski va yangi GPT'lar uchun)."""
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    if is_reasoning_model(model):
+        # Reasoning modellar "o'ylash"ga ham token sarflashi mumkin, shuning uchun
+        # keng chegara beramiz. Bu qo'shimcha xarajat emas — max_completion_tokens
+        # bu SHART, cheklov; faqat model haqiqatda yaratgan token uchun to'lanadi.
+        payload["max_completion_tokens"] = max(max_tokens * 3, 8000)
+        # temperature qo'llab-quvvatlanmaydi — umuman yuborilmaydi
+    else:
+        payload["max_tokens"] = max_tokens
+        payload["temperature"] = temperature
+    return payload
 
 # Til nomini promptga to'g'ri yozish uchun
 LANGUAGE_NAMES = {
@@ -69,22 +108,53 @@ def _banned_phrases_block(language: str) -> str:
 
 
 async def _call_gpt(system_prompt: str, user_prompt: str, temperature: float, max_tokens: int) -> str:
+    """
+    GPT'ni chaqiradi. Model eski parametrlarni qabul qilmasa (400) yoki model
+    topilmasa (404), avtomatik ravishda zaxira modelga o'tadi.
+    Xato bo'lsa — sabab serverga log qilinadi, lekin mijozga ko'rsatilmaydi.
+    """
+    last_error = None
+    models = [GPT_MODEL] + [m for m in FALLBACK_GPT_MODELS if m != GPT_MODEL]
+
     async with httpx.AsyncClient(timeout=180.0) as client:
-        resp = await client.post(
-            OPENAI_URL,
-            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-            json={
-                "model": GPT_MODEL,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        for model in models:
+            payload = _build_payload(model, system_prompt, user_prompt, temperature, max_tokens)
+            try:
+                resp = await client.post(
+                    OPENAI_URL,
+                    headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                    json=payload,
+                )
+            except httpx.RequestError as e:
+                logger.warning("GPT (%s) tarmoq xatosi: %s", model, e)
+                last_error = e
+                continue
+
+            if resp.status_code >= 400:
+                # Xatoning HAQIQIY sababini server logiga yozamiz
+                logger.error("GPT (%s) HTTP %s: %s", model, resp.status_code, resp.text[:500])
+                if resp.status_code in (400, 404, 422):
+                    last_error = RuntimeError(f"{model}: HTTP {resp.status_code}")
+                    continue  # model/parametr muammosi — zaxirani sinab ko'ramiz
+                resp.raise_for_status()
+
+            try:
+                content = resp.json()["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, ValueError) as e:
+                logger.error("GPT (%s) javobi kutilgan shaklda emas: %s", model, resp.text[:300])
+                last_error = e
+                continue
+
+            if content and content.strip():
+                if model != GPT_MODEL:
+                    logger.info("Javob zaxira GPT modeli orqali olindi: %s", model)
+                return content
+
+            logger.warning("GPT (%s) bo'sh javob qaytardi (finish_reason=%s)",
+                           model, resp.json().get("choices", [{}])[0].get("finish_reason"))
+            last_error = RuntimeError(f"{model}: bo'sh javob")
+
+    raise RuntimeError(f"GPT javob bermadi (barcha modellar sinaldi): {last_error}")
 
 
 async def generate_outline(topic: str, sources: list[dict], language: str = "en") -> str:

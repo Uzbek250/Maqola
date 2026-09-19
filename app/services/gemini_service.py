@@ -1,27 +1,78 @@
 """
 Gemini API: 1) mavzu generatsiyasi  2) yakuniy maqolani QATTIQ tekshirish/tanqid qilish
 """
+import logging
+
 import httpx
 import json
 from app.config import GEMINI_API_KEY, GEMINI_MODEL
 
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+logger = logging.getLogger(__name__)
+
+GEMINI_URL_TMPL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+# Google modelni o'chirsa yoki 503 ("high demand") bersa, navbat bilan shular sinaladi.
+FALLBACK_GEMINI_MODELS = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 
 LANGUAGE_NAMES = {"uz": "o'zbek", "en": "ingliz (English)", "ru": "rus (русский)"}
 
 
 async def _call_gemini(prompt: str, temperature: float = 0.7) -> str:
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": temperature},
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+    """
+    Gemini'ni chaqiradi. Model o'chirilgan (404), yuklangan (503) yoki kvota
+    tugagan (429) bo'lsa — avtomatik zaxira modelga o'tadi.
+
+    MUHIM: API kalit URL ichida EMAS, `x-goog-api-key` sarlavhasida yuboriladi.
+    Ilgari kalit URL'da edi va httpx xatosi matni bilan birga MIJOZGA ochiq
+    ko'rinardi (kalit oqib ketardi).
+    """
+    last_error = None
+    models = [GEMINI_MODEL] + [m for m in FALLBACK_GEMINI_MODELS if m != GEMINI_MODEL]
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for model in models:
+            url = GEMINI_URL_TMPL.format(model=model)
+            try:
+                resp = await client.post(
+                    url,
+                    headers={"x-goog-api-key": GEMINI_API_KEY},
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": temperature},
+                    },
+                )
+            except httpx.RequestError as e:
+                logger.warning("Gemini (%s) tarmoq xatosi: %s", model, e)
+                last_error = e
+                continue
+
+            if resp.status_code >= 400:
+                # Haqiqiy sabab server logiga yoziladi, mijozga ko'rsatilmaydi
+                logger.error("Gemini (%s) HTTP %s: %s", model, resp.status_code, resp.text[:400])
+                last_error = RuntimeError(f"{model}: HTTP {resp.status_code}")
+                if resp.status_code in (400, 403, 404, 429, 500, 502, 503, 504):
+                    continue  # keyingi modelni sinab ko'ramiz
+                resp.raise_for_status()
+
+            try:
+                data = resp.json()
+                parts = data["candidates"][0]["content"]["parts"]
+                text = "".join(p.get("text", "") for p in parts).strip()
+            except (KeyError, IndexError, ValueError, TypeError) as e:
+                logger.error("Gemini (%s) javobi kutilgan shaklda emas: %s", model, resp.text[:300])
+                last_error = e
+                continue
+
+            if text:
+                if model != GEMINI_MODEL:
+                    logger.info("Javob zaxira Gemini modeli orqali olindi: %s", model)
+                return text
+
+            logger.warning("Gemini (%s) bo'sh javob qaytardi (finish_reason=%s)",
+                           model, data.get("candidates", [{}])[0].get("finishReason"))
+            last_error = RuntimeError(f"{model}: bo'sh javob")
+
+    raise RuntimeError(f"Gemini javob bermadi (barcha modellar sinaldi): {last_error}")
 
 
 async def generate_topics(direction: str) -> list[str]:

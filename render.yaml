@@ -12,7 +12,10 @@ services:
         sync: false
       - key: NCBI_EMAIL
         sync: false
+      # DIQQAT: bu qiymatlarni eski modelga qaytarmang.
+      # gemini-2.0-flash 2026-06-01 da o'chirilgan (404 beradi).
+      # gpt-4o yangi GPT-5.x kabi ishlamaydi va eski parametrlarni talab qiladi.
       - key: GPT_MODEL
-        value: gpt-4o
+        value: gpt-5.6-luna
       - key: GEMINI_MODEL
-        value: gemini-2.0-flash
+        value: gemini-3.6-flash
