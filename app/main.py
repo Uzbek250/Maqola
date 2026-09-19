@@ -87,13 +87,31 @@ async def generate_article(req: GenerateRequest):
     if req.language not in ("uz", "en", "ru"):
         raise HTTPException(status_code=400, detail="language 'uz', 'en' yoki 'ru' bo'lishi kerak")
 
+    # Mavzu o'zbek/rus tilida bo'lishi mumkin, lekin PubMed faqat inglizchani indekslaydi.
+    # Shuning uchun avval mavzuni inglizcha kalit so'zlarga aylantiramiz — aks holda
+    # butun o'zbekcha jumla qidirilib, 0 natija qaytadi.
+    search_query = await gemini_service.to_search_query(req.topic)
+    logger.info("Qidiruv so'rovi: %r -> %r", req.topic[:80], search_query)
+
     found_sources = await sources_service.find_sources(
-        req.topic, prefer_medical=req.is_medical, max_results=10
+        search_query, prefer_medical=req.is_medical, max_results=10
     )
+
+    # Topilmasa — yanada kengroq (kamroq kalit so'zli) so'rov bilan bir marta qayta urinamiz
+    if not found_sources:
+        wider = " ".join(search_query.split()[:3])
+        if wider and wider != search_query:
+            logger.info("Manba topilmadi — kengroq so'rov sinaladi: %r", wider)
+            found_sources = await sources_service.find_sources(
+                wider, prefer_medical=req.is_medical, max_results=10
+            )
+
     if not found_sources:
         raise HTTPException(
             status_code=404,
-            detail="Bu mavzu bo'yicha haqiqiy ilmiy manba topilmadi. Mavzuni kengroq yoki boshqacha yozib ko'ring.",
+            detail=("Bu mavzu bo'yicha ilmiy manba topilmadi. Mavzuni soddaroq yoki "
+                    "umumiyroq yozib ko'ring (masalan: \"type 2 diabetes glucose "
+                    "monitoring\")."),
         )
 
     try:

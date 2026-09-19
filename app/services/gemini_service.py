@@ -94,6 +94,35 @@ FAQAT quyidagi JSON formatida javob ber, boshqa hech narsa yozma (izoh, markdown
         return [line.strip("- ").strip() for line in raw.split("\n") if line.strip()][:10]
 
 
+async def to_search_query(topic: str) -> str:
+    """
+    Mavzuni PubMed/Semantic Scholar uchun QISQA INGLIZCHA kalit so'zlarga aylantiradi.
+
+    Nega kerak: foydalanuvchi mavzuni o'zbek/rus tilida yozadi yoki tanlaydi, lekin
+    ilmiy bazalar (PubMed) faqat inglizcha matnni indekslaydi. Butun o'zbekcha jumla
+    qidiruv so'rovi sifatida yuborilsa — 0 natija qaytadi va /generate 404 beradi.
+    """
+    prompt = f"""Convert the research topic below into a SHORT English keyword query
+suitable for searching PubMed.
+
+Rules:
+- Output ONLY the query, nothing else (no explanation, no quotes, no markdown).
+- Use 5-10 core scientific keywords separated by spaces.
+- No full sentences, no question marks, no filler words.
+- Keep it specific enough to stay on topic but broad enough to find papers.
+
+Topic: {topic}"""
+    try:
+        raw = await _call_gemini(prompt, temperature=0.1)
+        query = raw.strip().split("\n")[0].strip().strip('"').strip("`").strip()
+        if query and len(query) < 300:
+            return query
+        logger.warning("Inglizcha so'rov g'alati chiqdi (%r) — asl mavzu ishlatiladi", raw[:120])
+    except Exception:
+        logger.exception("Mavzuni inglizcha so'rovga aylantirib bo'lmadi")
+    return topic
+
+
 def _word_count(text: str) -> int:
     return len(text.split())
 
