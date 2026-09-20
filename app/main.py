@@ -277,11 +277,13 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
 
     # Qo'lyozma paketi: abstract, kalit so'zlar, jadval, cover letter (ROADMAP Bosqich 1).
     # Xato bo'lsa ham maqola saqlanadi — paket shunchaki to'liq bo'lmaydi.
+    # Profil beriladi — abstract/kalit so'zlar jurnal limitiga mos yasalsin.
     await _progress(job, 92, "Qo'lyozma paketi yig'ilmoqda")
     meta: dict = {}
     try:
         meta = await manuscript_service.build_package_meta(
-            req.topic, article_text, found_sources, req.language
+            req.topic, article_text, found_sources, req.language,
+            journal_profile=journals_service.get_profile(req.journal),
         )
     except Exception:
         logger.exception("Paket metama'lumotini yasab bo'lmadi — maqola baribir qaytariladi")

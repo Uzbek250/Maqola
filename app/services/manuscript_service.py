@@ -71,12 +71,35 @@ Rules:
 
 
 async def build_package_meta(topic: str, article_text: str, sources: list[dict],
-                             language: str = "en") -> dict:
+                             language: str = "en", journal_profile: dict | None = None) -> dict:
     """
     Bitta LLM chaqiruvida paket uchun hamma matnni yasaydi (xarajatni kamaytirish uchun
     bir necha kichik chaqiruv o'rniga bitta katta chaqiruv).
+
+    `journal_profile` berilsa — abstract va kalit so'zlar JURNAL LIMITIGA mos yasaladi.
+    Bu muhim: aks holda ilova o'zi yaratgan matn o'zi tekshiradigan talabdan o'tmaydi
+    (sinovda Heliyon uchun abstract 271 so'z chiqdi, limit 250 edi).
     """
     lang_name = {"uz": "Uzbek (Latin script)", "en": "English", "ru": "Russian"}.get(language, "English")
+
+    # Jurnal limitlari — abstract va kalit so'zlar uchun aniq chegara
+    jp = journal_profile or {}
+    limits = []
+    ab_limit = jp.get("abstract_word_limit")
+    if ab_limit:
+        limits.append(f"- The structured abstract MUST NOT exceed {ab_limit} words "
+                      f"(aim for {int(ab_limit * 0.9)} words).")
+    ab_chars = jp.get("abstract_char_limit")
+    if ab_chars:
+        limits.append(f"- The abstract MUST NOT exceed {ab_chars} characters.")
+    kmin, kmax = jp.get("keywords_min"), jp.get("keywords_max")
+    if kmin or kmax:
+        limits.append(f"- Provide exactly {kmin or 3}-{kmax or 10} keywords.")
+    if jp.get("abstract_type") == "unstructured":
+        limits.append("- The target journal wants an UNSTRUCTURED abstract: return the abstract "
+                      "as a single 'text' field (still keep the JSON keys, but content flows as "
+                      "one paragraph without subheadings).")
+    jp_block = ("\nJOURNAL LIMITS (obey exactly):\n" + "\n".join(limits)) if limits else ""
 
     src_block = []
     for i, s in enumerate(sources, start=1):
@@ -90,7 +113,8 @@ async def build_package_meta(topic: str, article_text: str, sources: list[dict],
 
     user_prompt = (
         f"Manuscript topic: {topic}\n"
-        f"Language for all output: {lang_name}\n\n"
+        f"Language for all output: {lang_name}\n"
+        f"{jp_block}\n\n"
         f"The manuscript body (for context only):\n{article_text[:6000]}\n\n"
         f"SOURCES ({len(sources)}):\n" + "\n\n".join(src_block) +
         "\n\nReturn the JSON described in the system prompt."
