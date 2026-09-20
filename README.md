@@ -45,8 +45,15 @@ Va uni haqiqiy Render URL'ingizga almashtiring. Keyin bu HTML faylni:
 
 ## 5. Muhim eslatmalar
 
-- **Render Free tier** — 15 daqiqa harakatsizlikdan keyin "uxlab qoladi", birinchi so'rov 30-50 soniya
-  kutishi mumkin. Mijozga oldindan ayting, aks holda "ishlamayapti" deb o'ylashi mumkin.
+- **Render Free tier** — 15 daqiqa harakatsizlikdan keyin "uxlab qoladi", birinchi so'rov ~1 daqiqa
+  kutishi mumkin. **Yechim qo'llandi:** har 10 daqiqada `/health` ga ping yuboradigan vazifa
+  (`~/.hermes/scripts/maqola_keepalive.py`) servisni uyg'oq tutadi. Render bepul tarifda oyiga
+  750 soat beradi, bitta servisga ~730 soat kerak — bemalol sig'adi. Servis o'chib qolsa,
+  ping vazifasi ogohlantirish yuboradi (sog'lom bo'lsa jim turadi).
+- **Gemini bepul tarif juda kam** — chaqiruvlar soni cheklangan (`limit: 20`), bir necha
+  maqoladan keyin `429` qaytaradi va sifat tekshiruvi ishlamay qoladi (maqola baribir
+  qaytariladi, lekin tekshiruvsiz). Barqaror ishlash uchun Gemini'da billing yoqing —
+  bu serverga qaraganda muhimroq.
 - **PubMed** — kalitsiz sekundiga 3 so'rov chegarasi bor. Agar tez-tez ishlatilsa, `.env`ga
   bepul NCBI API key qo'shish tavsiya etiladi: https://www.ncbi.nlm.nih.gov/account/settings/
 - **Xarajat** — GPT-4o va Gemini API pullik (token asosida). Har bir maqola generatsiyasi
@@ -74,7 +81,43 @@ Sozlash kerak bo'lsa: `app/services/gpt_service.py` faylida `MIN_WORDS`, `MAX_WO
 `BANNED_PHRASES_*` ro'yxatlarini, `app/services/sources.py`da `RECENCY_YEARS` va
 `MIN_ABSTRACT_LENGTH`ni, `app/main.py`da `MAX_REWRITE_ATTEMPTS`ni o'zgartiring.
 
-## 7. Keyingi qadamlar (agar sifat yetarli bo'lmasa)
+## 7. Fon vazifasi (job) API — 3-versiya
+
+Maqola yaratish 60–285 soniya davom etadi. Buni bitta HTTP so'rov ichida kutish yomon:
+brauzer/proksi timeout berishi mumkin va mijoz "ishlamayapti" deb o'ylaydi. Shuning uchun
+**asinxron rejim** qo'shildi.
+
+| Endpoint | Nima qiladi |
+|---|---|
+| `POST /jobs` | Vazifani boshlaydi, **darhol** (202) `job_id` qaytaradi |
+| `GET /jobs/{job_id}` | Holat: `status`, `progress` (0-100), `step`, tayyor bo'lsa `result` |
+| `POST /generate` | Eski sinxron rejim — o'zgarmagan (orqaga moslik saqlanadi) |
+| `GET /download/{session_id}` | Word (.docx) yuklab olish |
+
+```bash
+# 1) Vazifani boshlash — javob bir zumda keladi
+curl -X POST https://SIZNING-URL.onrender.com/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"topic":"vitamin D deficiency and immune function","is_medical":true,"language":"en"}'
+# -> {"job_id":"7870251048ab42c8","status":"queued","status_url":"/jobs/7870251048ab42c8"}
+
+# 2) Holatni so'rash (progress ko'rsatish uchun)
+curl https://SIZNING-URL.onrender.com/jobs/7870251048ab42c8
+# -> {"status":"running","progress":45,"step":"Maqola yozilmoqda",...}
+# tayyor bo'lganda: {"status":"done","progress":100,"result":{...}}
+```
+
+Progress bosqichlari: 5% mavzu tahlili → 15% manba qidirish → 25% DOI tekshiruvi →
+35% reja → 45% yozish → 70% sifat tekshiruvi → 78% qayta yozish → 100% tayyor.
+
+`status` qiymatlari: `queued`, `running`, `done`, `error` (xato bo'lsa `error` maydonida
+o'zbekcha sabab keladi). Frontend (`frontend/index.html`) shu oqimdan foydalanadi va
+progress chizig'ini ko'rsatadi.
+
+Xotira cheklovi: eng oxirgi 100 ta vazifa saqlanadi, tugaganlari 1 soatdan keyin
+o'chiriladi (`MAX_JOBS`, `JOB_TTL_SECONDS` — `app/main.py`).
+
+## 8. Keyingi qadamlar (agar sifat yetarli bo'lmasa)
 
 - GPT-4o o'rniga `o1` yoki `gpt-4-turbo` sinab ko'ring (sifat farqi bo'lishi mumkin, narx boshqacha)
 - `rewrite_article` funksiyasini bir necha marta chaqirish (hozir faqat 1 marta qayta yozadi)

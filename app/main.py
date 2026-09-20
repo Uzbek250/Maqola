@@ -2,9 +2,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
+import asyncio
 import io
 import logging
 import os
+import time
+import uuid
 
 from app.services import sources as sources_service
 from app.services import gemini_service
@@ -30,6 +33,40 @@ app.add_middleware(
 FRONTEND_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
 
 SESSION_STORE: dict[str, dict] = {}
+
+# Fon vazifalari (job) holati. /generate 60-285 soniya davom etgani uchun HTTP
+# so'rovni shuncha ushlab turish yomon: proksi/browser timeout beradi va mijoz
+# "ishlamayapti" deb o'ylaydi. Endi so'rov darhol job_id qaytaradi, natija
+# /jobs/{id} orqali so'rab olinadi.
+JOBS: dict[str, dict] = {}
+MAX_JOBS = 100          # xotira o'smasligi uchun eng oxirgi 100 ta job saqlanadi
+JOB_TTL_SECONDS = 3600  # 1 soatdan keyin eski joblar o'chiriladi
+
+
+def _prune_jobs() -> None:
+    """Eski/tugagan joblarni tozalaydi — xotira cheksiz o'smasin."""
+    now = time.time()
+    stale = [jid for jid, j in JOBS.items()
+             if j.get("finished_at") and now - j["finished_at"] > JOB_TTL_SECONDS]
+    for jid in stale:
+        JOBS.pop(jid, None)
+
+    if len(JOBS) > MAX_JOBS:
+        done = sorted((kv for kv in JOBS.items() if kv[1].get("finished_at")),
+                      key=lambda kv: kv[1]["finished_at"])
+        for jid, _ in done[:len(JOBS) - MAX_JOBS]:
+            JOBS.pop(jid, None)
+
+
+async def _progress(job: dict | None, percent: int, step: str) -> None:
+    """Job progressini yangilaydi (job=None bo'lsa — sinxron rejim, hech narsa qilmaydi)."""
+    if job is None:
+        return
+    # Faqat oldinga siljiydi — parallel bosqichlar orqaga qaytarmasin
+    job["progress"] = max(job.get("progress", 0), percent)
+    job["step"] = step
+    logger.info("Job %s: %s%% — %s", job.get("id"), job["progress"], step)
+    await asyncio.sleep(0)  # event loop'ga boshqa so'rovlarni bajarish imkonini ber
 
 MIN_WORDS = 1800
 MAX_WORDS = 2500
@@ -72,10 +109,9 @@ async def get_topics(req: TopicRequest):
         )
 
 
-@app.post("/generate")
-async def generate_article(req: GenerateRequest):
+async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
     """
-    To'liq oqim:
+    To'liq oqim (fon vazifasida ham, sinxron rejimda ham ishlatiladi):
     1. Haqiqiy manbalarni topish (PubMed/Semantic Scholar) - yangilik va citation
        soni bo'yicha saralangan eng sifatli manbalar
     2. Outline (reja) tuzish (GPT)
@@ -83,15 +119,22 @@ async def generate_article(req: GenerateRequest):
     4. Gemini bilan qattiq tekshirish
     5. Agar muammo topilsa - GPT bilan qayta yozish (2 martagacha, har safar qayta tekshiriladi)
     6. Session'ga saqlash (docx yuklab olish uchun)
+
+    `job` berilsa — har bosqichda progress yangilanadi. Xatolar HTTPException
+    ko'rinishida ko'tariladi; fon vazifasi ularni ushlab, job holatiga yozadi.
     """
     if req.language not in ("uz", "en", "ru"):
         raise HTTPException(status_code=400, detail="language 'uz', 'en' yoki 'ru' bo'lishi kerak")
+
+    await _progress(job, 5, "Mavzu tahlil qilinmoqda")
 
     # Mavzu o'zbek/rus tilida bo'lishi mumkin, lekin PubMed faqat inglizchani indekslaydi.
     # Shuning uchun avval mavzuni inglizcha kalit so'zlarga aylantiramiz — aks holda
     # butun o'zbekcha jumla qidirilib, 0 natija qaytadi.
     search_query = await gemini_service.to_search_query(req.topic)
     logger.info("Qidiruv so'rovi: %r -> %r", req.topic[:80], search_query)
+
+    await _progress(job, 15, "Ilmiy manbalar qidirilmoqda")
 
     found_sources = await sources_service.find_sources(
         search_query, prefer_medical=req.is_medical, max_results=10
@@ -114,6 +157,8 @@ async def generate_article(req: GenerateRequest):
                     "monitoring\")."),
         )
 
+    await _progress(job, 25, "Manba ma'lumotlari tekshirilmoqda (DOI)")
+
     # DOI si yo'q manbalar uchun sarlavha bo'yicha DOI topamiz (ro'yxat bir xil
     # ko'rinishda bo'lsin), keyin mavjudlarni Crossref orqali tekshiramiz.
     try:
@@ -127,9 +172,12 @@ async def generate_article(req: GenerateRequest):
     logger.info("Manbalar: %s ta | bazalar: %s | so'rov: %r",
                 len(found_sources), databases, search_query)
 
+    await _progress(job, 35, "Maqola rejasi tuzilmoqda")
+
     try:
         outline = await gpt_service.generate_outline(req.topic, found_sources, req.language)
 
+        await _progress(job, 45, "Maqola yozilmoqda")
         article_text = await gpt_service.write_article(
             req.topic, found_sources, req.citation_style, req.language, outline=outline,
             search_query=search_query, databases=databases,
@@ -143,6 +191,7 @@ async def generate_article(req: GenerateRequest):
 
     # Tekshirish bosqichi. MUHIM: bu bosqich yiqilsa ham maqola YO'QOLMASLIGI kerak —
     # matn allaqachon yozilgan, foydalanuvchiga yetkazilishi shart.
+    await _progress(job, 70, "AI sifat tekshiruvi")
     review = None
     try:
         review = await gemini_service.review_article(
@@ -154,6 +203,8 @@ async def generate_article(req: GenerateRequest):
     rewrite_count = 0
     if review is not None:
         while gemini_service.needs_rewrite(review) and rewrite_count < MAX_REWRITE_ATTEMPTS:
+            await _progress(job, 78 + rewrite_count * 4,
+                            f"Qayta yozilmoqda ({rewrite_count + 1}/{MAX_REWRITE_ATTEMPTS})")
             try:
                 article_text = await gpt_service.rewrite_article(
                     article_text, review, found_sources, req.language
@@ -181,6 +232,7 @@ async def generate_article(req: GenerateRequest):
     # 2693 so'z chiqdi, 2500 limitidan oshdi va 2 marta qayta yozish ham tushirmadi).
     before = len(article_text.split())
     if not (MIN_WORDS <= before <= MAX_WORDS):
+        await _progress(job, 90, "So'z soni moslanmoqda")
         try:
             article_text = await gpt_service.adjust_length(
                 article_text, found_sources, req.language, MIN_WORDS, MAX_WORDS
@@ -191,7 +243,9 @@ async def generate_article(req: GenerateRequest):
         except Exception:
             logger.exception("Uzunlikni moslashtirib bo'lmadi — mavjud matn qoldiriladi")
 
-    session_id = req.topic[:40].replace(" ", "_")
+    # session_id oxiriga qisqa unikal qism qo'shamiz — bir xil mavzuni ikki mijoz
+    # yaratsa, ikkinchisi birinchisining sessiyasini ustiga yozib qo'ymasin.
+    session_id = f"{req.topic[:40].replace(' ', '_')}_{uuid.uuid4().hex[:6]}"
     SESSION_STORE[session_id] = {
         "topic": req.topic,
         "article_text": article_text,
@@ -201,7 +255,7 @@ async def generate_article(req: GenerateRequest):
         "language": req.language,
     }
 
-    return {
+    payload = {
         "session_id": session_id,
         "article_text": article_text,
         "word_count": len(article_text.split()),
@@ -212,6 +266,91 @@ async def generate_article(req: GenerateRequest):
         ],
         "review_summary": review,
     }
+    await _progress(job, 100, "Tayyor")
+    return payload
+
+
+async def _run_job(job_id: str, req: GenerateRequest) -> None:
+    """Fon vazifasi: oqimni ishga tushiradi va natija/xatoni job holatiga yozadi."""
+    job = JOBS.get(job_id)
+    if job is None:
+        return
+    job["status"] = "running"
+    job["started_at"] = time.time()
+    try:
+        job["result"] = await _run_pipeline(req, job)
+        job["status"] = "done"
+        job["progress"] = 100
+        job["step"] = "Tayyor"
+    except HTTPException as e:
+        # HTTPException fon vazifasida mijozga yetib bormaydi — holatga yozamiz
+        job["status"] = "error"
+        job["error"] = str(e.detail)
+        logger.warning("Job %s HTTP xato: %s", job_id, e.detail)
+    except Exception:
+        logger.exception("Job %s kutilmagan xato", job_id)
+        job["status"] = "error"
+        job["error"] = "Kutilmagan xatolik. Qayta urinib ko'ring."
+    finally:
+        job["finished_at"] = time.time()
+        elapsed = job["finished_at"] - job["started_at"]
+        logger.info("Job %s tugadi: %s (%.1f soniya)", job_id, job["status"], elapsed)
+        _prune_jobs()
+
+
+@app.post("/generate")
+async def generate_article(req: GenerateRequest):
+    """
+    Sinxron rejim: natija tayyor bo'lguncha kutadi (eski mijozlar uchun saqlanadi).
+    Yangi mijozlar uchun /jobs tavsiya etiladi — u darhol javob qaytaradi.
+    """
+    return await _run_pipeline(req)
+
+
+@app.post("/jobs", status_code=202)
+async def create_job(req: GenerateRequest):
+    """
+    Fon vazifasini boshlaydi va DARHOL job_id qaytaradi (202).
+    Natijani /jobs/{job_id} orqali so'rab olinadi (progress bilan).
+    """
+    _prune_jobs()
+    job_id = uuid.uuid4().hex[:16]
+    JOBS[job_id] = {
+        "id": job_id,
+        "status": "queued",
+        "progress": 0,
+        "step": "Navbatda",
+        "topic": req.topic,
+        "created_at": time.time(),
+        "finished_at": None,
+        "result": None,
+        "error": None,
+    }
+    asyncio.create_task(_run_job(job_id, req))
+    return {"job_id": job_id, "status": "queued", "status_url": f"/jobs/{job_id}"}
+
+
+@app.get("/jobs/{job_id}")
+async def get_job(job_id: str):
+    """Job holati va natijasi. status: queued | running | done | error."""
+    job = JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Vazifa topilmadi (yoki muddati o'tgan).")
+
+    resp = {
+        "job_id": job_id,
+        "status": job["status"],
+        "progress": job.get("progress", 0),
+        "step": job.get("step", ""),
+        "topic": job.get("topic", ""),
+    }
+    if job["status"] == "done":
+        resp["result"] = job["result"]
+    elif job["status"] == "error":
+        resp["error"] = job.get("error") or "Noma'lum xatolik."
+    elif job.get("started_at"):
+        resp["elapsed_seconds"] = round(time.time() - job["started_at"], 1)
+    return resp
 
 
 @app.get("/download/{session_id}")

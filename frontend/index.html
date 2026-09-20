@@ -14,6 +14,12 @@
   .topic-btn { display: block; text-align: left; background: #f0f0f2; color: #111; margin-top: 8px; padding: 10px 14px; }
   .topic-btn:hover { background: #e5e5e8; }
   #status { color: #666; font-size: 14px; margin-top: 10px; }
+  .progress-wrap { margin-top: 14px; display: none; }
+  .progress-bar-bg { background: #e5e5e8; border-radius: 999px; height: 10px; overflow: hidden; }
+  .progress-bar-fill { background: #111; height: 100%; width: 0%; border-radius: 999px; transition: width 0.4s ease; }
+  .progress-meta { display: flex; justify-content: space-between; font-size: 13px; color: #555; margin-top: 6px; }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #bbb; border-top-color: #111; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   #article-output { white-space: pre-wrap; line-height: 1.6; font-size: 15px; }
   .review-box { background: #fff8e6; border: 1px solid #f0d98c; border-radius: 8px; padding: 14px; margin-top: 16px; font-size: 14px; }
   .sources-list { font-size: 13px; color: #555; }
@@ -48,6 +54,13 @@
   </select>
   <button onclick="generateArticle()" id="gen-btn">Maqola yaratish</button>
   <div id="status"></div>
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-fill"></div></div>
+    <div class="progress-meta">
+      <span id="progress-step">Navbatda...</span>
+      <span id="progress-pct">0%</span>
+    </div>
+  </div>
 </div>
 
 <div class="card" id="result-card" style="display:none">
@@ -95,17 +108,50 @@
     }
   }
 
+  // Progress ko'rsatkichini boshqarish
+  function setProgress(pct, step) {
+    document.getElementById("progress-fill").style.width = `${pct}%`;
+    document.getElementById("progress-pct").textContent = `${pct}%`;
+    document.getElementById("progress-step").innerHTML =
+      `<span class="spinner"></span>${step || "Ishlanmoqda..."}`;
+  }
+
+  function renderResult(data) {
+    currentSessionId = data.session_id;
+    document.getElementById("result-card").style.display = "block";
+    document.getElementById("article-output").textContent = data.article_text;
+
+    const review = data.review_summary || {};
+    document.getElementById("review-output").innerHTML = `
+      <strong>So'z soni:</strong> ${data.word_count} | <strong>Qayta yozishlar:</strong> ${data.rewrite_attempts}<br>
+      <strong>Gemini tekshiruvi:</strong> ${review.manbalarga_moslik || "—"}<br>
+      <strong>Xulosa:</strong> ${review.umumiy_baho || "—"}
+    `;
+
+    document.getElementById("sources-output").innerHTML =
+      "<strong>Ishlatilgan manbalar:</strong><br>" +
+      data.sources.map(s => `• ${s.title} (${s.year})`).join("<br>");
+  }
+
+  const POLL_INTERVAL_MS = 2000;
+  const MAX_WAIT_MS = 15 * 60 * 1000; // 15 daqiqa — undan keyin voz kechamiz
+
   async function generateArticle() {
     const topic = selectedTopic || document.getElementById("direction").value.trim();
     if (!topic) return alert("Avval mavzu tanlang yoki yozing");
 
     const btn = document.getElementById("gen-btn");
     const status = document.getElementById("status");
+    const wrap = document.getElementById("progress-wrap");
+
     btn.disabled = true;
-    status.textContent = "Manbalar qidirilmoqda, maqola yozilmoqda va tekshirilmoqda... (1-2 daqiqa)";
+    wrap.style.display = "block";
+    setProgress(0, "Vazifa yuborilmoqda...");
+    status.textContent = "";
 
     try {
-      const resp = await fetch(`${API_BASE}/generate`, {
+      // 1) Fon vazifasini boshlaymiz — javob DARHOL keladi, kutish yo'q
+      const resp = await fetch(`${API_BASE}/jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -117,29 +163,39 @@
       });
 
       if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.detail || "Noma'lum xato");
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `Server xatosi (${resp.status})`);
       }
 
-      const data = await resp.json();
-      currentSessionId = data.session_id;
+      const { job_id } = await resp.json();
 
-      document.getElementById("result-card").style.display = "block";
-      document.getElementById("article-output").textContent = data.article_text;
+      // 2) Holatni so'rab turamiz — progress ko'rinib turadi
+      const startedAt = Date.now();
+      while (true) {
+        if (Date.now() - startedAt > MAX_WAIT_MS) {
+          throw new Error("Vaqt tugadi (15 daqiqa). Sahifani yangilab qayta urinib ko'ring.");
+        }
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 
-      const review = data.review_summary;
-      document.getElementById("review-output").innerHTML = `
-        <strong>So'z soni:</strong> ${data.word_count} | <strong>Qayta yozishlar:</strong> ${data.rewrite_attempts}<br>
-        <strong>Gemini tekshiruvi:</strong> ${review.manbalarga_moslik || "—"}<br>
-        <strong>Xulosa:</strong> ${review.umumiy_baho || "—"}
-      `;
+        const poll = await fetch(`${API_BASE}/jobs/${job_id}`);
+        if (!poll.ok) throw new Error(`Holatni olishda xato (${poll.status})`);
+        const job = await poll.json();
 
-      document.getElementById("sources-output").innerHTML =
-        "<strong>Ishlatilgan manbalar:</strong><br>" +
-        data.sources.map(s => `• ${s.title} (${s.year})`).join("<br>");
+        setProgress(job.progress || 0, job.step);
 
-      status.textContent = "Tayyor!";
+        if (job.status === "done") {
+          setProgress(100, "Tayyor");
+          renderResult(job.result);
+          setTimeout(() => { wrap.style.display = "none"; }, 1200);
+          status.textContent = "Tayyor!";
+          return;
+        }
+        if (job.status === "error") {
+          throw new Error(job.error || "Noma'lum xatolik");
+        }
+      }
     } catch (e) {
+      wrap.style.display = "none";
       status.textContent = `Xato: ${e.message}`;
     } finally {
       btn.disabled = false;
