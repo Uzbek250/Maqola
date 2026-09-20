@@ -17,6 +17,7 @@ from app.services import manuscript_service
 from app.services import fulltext as fulltext_service
 from app.services import journals as journals_service
 from app.services import compliance as compliance_service
+from app.services import store as store_service
 
 # Xatolarning haqiqiy sababi Render loglarida ko'rinishi uchun
 logging.basicConfig(
@@ -45,6 +46,11 @@ SESSION_STORE: dict[str, dict] = {}
 JOBS: dict[str, dict] = {}
 MAX_JOBS = 100          # xotira o'smasligi uchun eng oxirgi 100 ta job saqlanadi
 JOB_TTL_SECONDS = 3600  # 1 soatdan keyin eski joblar o'chiriladi
+
+# Diskdan tiklaymiz: server qayta ishga tushgach (deploy) mijoz avval yaratgan
+# maqolasini va natijasini yo'qotmasligi uchun (app/services/store.py ga qarang).
+SESSION_STORE.update(store_service.load_sessions())
+JOBS.update(store_service.load_jobs())
 
 
 def _prune_jobs() -> None:
@@ -307,7 +313,13 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         "full_text_stats": ft_stats,
         "compliance": compliance,
         "journal": profile.get("key"),
+        "saved_at": time.time(),
     }
+    # Diskka yozamiz — server qayta ishga tushsa ham maqola yuklab olinadigan bo'lsin
+    try:
+        store_service.save_sessions(SESSION_STORE)
+    except Exception:
+        logger.exception("Sessiyani diskka saqlab bo'lmadi")
 
     payload = {
         "session_id": session_id,
@@ -369,6 +381,11 @@ async def _run_job(job_id: str, req: GenerateRequest) -> None:
         elapsed = job["finished_at"] - job["started_at"]
         logger.info("Job %s tugadi: %s (%.1f soniya)", job_id, job["status"], elapsed)
         _prune_jobs()
+        # Tugagan vazifani diskka yozamiz — deploy'dan keyin ham natija ochilishi uchun
+        try:
+            store_service.save_jobs(JOBS)
+        except Exception:
+            logger.exception("Vazifani diskka saqlab bo'lmadi")
 
 
 @app.post("/generate")

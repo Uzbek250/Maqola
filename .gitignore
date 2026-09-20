@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .venv/
+
+# Sessiya/vazifa saqlanadigan papka (runtime)
+data/
