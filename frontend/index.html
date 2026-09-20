@@ -339,8 +339,11 @@
         o.value = j.key;
         let label = j.name;
         if (j.word_limit) label += ` — limit ${j.word_limit} so'z`;
-        else if (j.reference_style) label += " — limitsiz";
         if (j.accepts_reviews === false) label += " ⛔ sharh qabul qilmaydi";
+        // Indekslash holati — mijoz maqola yozdirishdan OLDIN bilsin
+        if (j.indexing_status === "none") label += " ❌ rasmiy indeksda yo'q";
+        else if (j.indexing_status === "verified") label += " ✅ indekslangan";
+        if (j.if_verified === false && j.claimed_if) label += ` (IF ${j.claimed_if} tasdiqlanmagan)`;
         o.textContent = label;
         sel.appendChild(o);
       });

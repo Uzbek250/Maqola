@@ -267,6 +267,309 @@ _reg({
              "Research & Care Review — 5,000 so'z / 250 so'zlik abstract / 65 havola.",
 })
 
+# =============================================================================
+# FOYDALANUVCHI BERGAN 12 JURNAL (2026-09-20 da tekshirildi)
+# =============================================================================
+# TEKSHIRUV NATIJASI: bu 12 jurnalning HECH BIRI rasmiy indeksda yo'q.
+# DOAJ API, Clarivate Master Journal List, SCImago, Crossref va OpenAlex
+# bo'yicha 0 natija. IF raqamlari Clarivate JCR yoki Scopus'dan EMAS —
+# jurnalning o'zi yoki ResearchBib (o'zi "impact factor" beradigan bepul
+# agregator) tomonidan e'lon qilingan.
+#
+# Shuning uchun bu profillarda:
+#   indexing = []            -> tekshirildi, hech qayerda yo'q (❌ hisobotda)
+#   if_verified = False      -> IF JCR/Scopus'da tasdiqlanmagan (❌ hisobotda)
+#   claimed_if = <raqam>     -> mijoz aytgan raqam (ma'lumot uchun saqlanadi)
+#   predatory_signals = [...]-> aniq dalillar (⚠️ hisobotda)
+#
+# Bu jurnallar mavjud va ishlaydi, lekin mijoz buni BILIB turishi kerak:
+# bunday nashr ba'zi tashkilotlarda ilmiy ish sifatida hisobga olinmaydi.
+# Ilova qaror qabul qilmaydi — faktlarni ko'rsatadi, qaror muallifniki.
+
+# --- Mahalliy (O'zbekiston) — hammasi bitta nashriyot: "Worldly Knowledge", Andijon
+_UZ_TEMPLATE = ("ANNOTATSIYA, KALIT SO'ZLAR, KIRISH, MATERIALLAR VA USLUBLAR, "
+                "NATIJALAR VA MUHOKAMALAR, XULOSA, FOYDALANILGAN ADABIYOTLAR "
+                "(nashriyotning namunaviy maqola shabloni)")
+
+_reg({
+    "key": "iqro", "name": "Iqro jurnali", "field": "general",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": None, "max_references": None,
+    "required_sections": ["Introduction", "Methods", "Results", "Discussion", "Conclusion"],
+    "structure_note": _UZ_TEMPLATE,
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": None,
+    "apc_usd": 0, "apc_note": "O'zbekiston slib.uz portali: nashr BEPUL.",
+    "ai_policy": None, "indexing": [], "claimed_if": 8.245, "if_verified": False,
+    "predatory_signals": [
+        "IF 8.245 hech qayerda rasmiy emas — faqat Telegram/Instagram e'lonlarida",
+        "Jurnal o'z PDF'larida boshqa raqam bosadi (ResearchBib 9.145, SJIF 5.431)",
+        "Scopus, Web of Science, DOAJ (ISSN 2181-4341), PubMed — hech birida yo'q",
+        "'Indekslash' ro'yxati faqat ResearchBib, SJIFactor, EuroPub kabi agregatorlar",
+        "2023 da boshlanib 2026 da 23-jild; har oyda 100+ qisqa maqola, barcha sohalar",
+        "Telegram orqali pullik 'tezkor nashr' va maqola yozib berish xizmati sotiladi",
+    ],
+    "source_url": "https://wordlyknowledge.uz/index.php/iqro",
+    "notes": "Mavjud, ishlaydigan OJS sayti bor (ISSN 2181-4341, 2023, oylik). Tahririyat "
+             "shakllangan, lekin xalqaro indekslarda yo'q. O'zbekiston OAK ro'yxatida "
+             "bo'lishi mumkin (mahalliy ro'yxat) — bu xalqaro indeks emas. Nashr bepul.",
+})
+_reg({
+    "key": "ijsresearchers", "name": "International Journal of Scientific Researchers",
+    "field": "general",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": None, "max_references": None,
+    "required_sections": ["Introduction", "Methods", "Results", "Discussion", "Conclusion"],
+    "structure_note": _UZ_TEMPLATE,
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": None,
+    "apc_usd": None, "apc_note": None, "ai_policy": None,
+    "indexing": [], "claimed_if": 8.293, "if_verified": False,
+    "predatory_signals": [
+        "'Impact factor: 8,293' jurnalning O'Z PDF har bir sahifasida bosilgan — JCR/Scopus emas",
+        "Scopus, Web of Science, DOAJ (ISSN 3030-332X), PubMed — hech birida yo'q",
+        "Nomi haqiqiy jurnallarga juda o'xshash (IJSR India, IJ Science and Research)",
+        "Boshqa Worldly Knowledge jurnallari bilan bir xil nashriyot va marketing",
+        "Maqolalar bir nechta domenga 'Google Scholar' uchun ko'chirib qo'yiladi",
+    ],
+    "source_url": "https://worldlyjournals.com/index.php/IJSR",
+    "notes": "Foydalanuvchi bergan 'International Journal of Scientific Researchs' — imlo "
+             "xatosi. Aniqlangan jurnal: 'International Journal of Scientific Researchers' "
+             "(ISSN 3030-332X), aynan 8,293 raqamini olib yurgan yagona nom. Xuddi shu "
+             "nashriyot (Worldly Knowledge).",
+})
+_reg({
+    "key": "ilmfan_xabarnomasi", "name": "Ilm-fan xabarnomasi", "field": "general",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": None, "max_references": None,
+    "required_sections": ["Introduction", "Methods", "Results", "Discussion", "Conclusion"],
+    "structure_note": _UZ_TEMPLATE,
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": None,
+    "apc_usd": None, "apc_note": None, "ai_policy": None,
+    "indexing": [], "claimed_if": 7.241, "if_verified": False,
+    "predatory_signals": [
+        "IF 7.241 jurnalning o'z saytida ham, PDF'ida ham yo'q — faqat reklamalarda",
+        "ResearchBib boshqa raqam ko'rsatadi (8.841/2025)",
+        "Scopus, Web of Science, DOAJ (ISSN 3030-3931), PubMed — hech birida yo'q",
+        "'Index Copernicus' logotipi bor, lekin ishlaydigan havolasi yo'q",
+        "2024 da boshlanib 2026 da 15-jild — hajm haqiqiy peer review'ga mos emas",
+    ],
+    "source_url": "https://worldlyjournals.com/index.php/Yangiizlanuvchi",
+    "notes": "Mavjud OJS sayti (ISSN 3030-3931, 2024, oylik). Worldly Knowledge nashriyoti. "
+             "Nashr narxi hech qayerda e'lon qilinmagan.",
+})
+_reg({
+    "key": "pedagogik_tadqiqotlar", "name": "Pedagogik tadqiqotlar jurnali",
+    "field": "pedagogy",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": None, "max_references": None,
+    "required_sections": ["Introduction", "Methods", "Results", "Discussion", "Conclusion"],
+    "structure_note": _UZ_TEMPLATE,
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": None,
+    "apc_usd": None, "apc_note": None, "ai_policy": None,
+    "indexing": [], "claimed_if": 7.212, "if_verified": False,
+    "predatory_signals": [
+        "2024 da tashkil etilgan jurnal uchun IF 7.212 — JCR/Scopus'da bunday raqam yo'q",
+        "Scopus, Web of Science (MJL), DOAJ, Crossref, OpenAlex — hammasida 0 natija",
+        "Indekslash ro'yxatidagi ResearchBib havolasi BOSHQA jurnal ISSN'iga olib boradi",
+        "Yiliga 12 son, har bir maqola ~99 000 so'mdan sotiladi, 5 ish kunida nashr",
+        "Mualliflar uchun qo'llanma umuman yo'q (so'z/abstract/havola qoidalari)",
+    ],
+    "source_url": "https://wosjournals.com/index.php/ptj",
+    "notes": "Mavjud, ISSN 3060-4923. Tahririyat hay'ati haqiqiy va nomlangan (o'zbek "
+             "akademiklari) — bu yagona ijobiy belgi. Qolgan hamma narsa tekshirilmagan. "
+             "Qo'llanma e'lon qilinmagan, shuning uchun faqat umumiy tuzilma qo'llanadi.",
+})
+_reg({
+    "key": "akademik_tadqiqotlar", "name": "Akademik tadqiqotlar jurnali (ATJ)",
+    "field": "general",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": None, "max_references": None,
+    "required_sections": ["Introduction", "Methods", "Results", "Discussion", "Conclusion"],
+    "structure_note": _UZ_TEMPLATE,
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": True,
+    "apc_usd": None, "apc_note": None, "ai_policy": None,
+    "indexing": [], "claimed_if": 15.7, "if_verified": False,
+    "predatory_signals": [
+        "IF 15.7 — Nature darajasidan yuqori; jurnalning o'zi 2026 da boshlangan",
+        "Raqam faqat ResearchBib va reklamadan, JCR/Scopus'dan emas",
+        "ISSN chalkash: saytda 3003-9178 (mavjud emas), ro'yxatda 3093-9178, "
+        "reklamada 3093-978X (bu nemis jurnali)",
+        "Scopus, Web of Science, DOAJ, Crossref, OpenAlex — hammasida 0 natija",
+        "Xalqaro deb e'lon qilinadi, lekin tahririyat deyarli butunlay Andijon/Samarqand",
+    ],
+    "source_url": "https://wkscientificbulletin.com/index.php/atj",
+    "notes": "Mavjud, ISSN 3093-9178. Sayt ikki tomonlama ko'r taqriz va COPE'ga amal "
+             "qilishni e'lon qiladi, sharh maqolalarini qabul qiladi (o'z bayonotiga ko'ra). "
+             "15.7 raqami tasdiqlanmagan. Qo'llanma e'lon qilinmagan.",
+})
+
+# --- Xalqaro ro'yxat
+_reg({
+    "key": "bg_pulse", "name": "BG Pulse Journal", "field": "general",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": None, "max_references": None,
+    "required_sections": ["Introduction", "Methods", "Results", "Discussion", "Conclusion"],
+    "structure_note": None,
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": True,
+    "apc_usd": None, "apc_note": None, "ai_policy": None,
+    "indexing": [], "claimed_if": 15.37, "if_verified": False,
+    "predatory_signals": [
+        "IF 15.37 faqat o'z saytida va ResearchBib'da — JCR/Scopus'da yo'q",
+        "Raqam ISSN portaliga havola qilingan, portalda esa IF haqida hech narsa yo'q",
+        "Tahririyat hay'ati sahifasi BO'SH — bosh muharrir ham yo'q",
+        "Mualliflar uchun qo'llanma sahifasi BO'SH",
+        "Email 'bgpulsejournal@info.com' — jurnal domenida emas, manzil 'Chicago,United State' (imlo xato)",
+        "Scopus, Web of Science, DOAJ, Crossref, OpenAlex — hammasida 0 natija",
+    ],
+    "source_url": "http://www.bgpulseusa.com/",
+    "notes": "ISSN 1947-2536 (AQSh). Sayt ishlaydi, lekin qo'llanma va tahririyat e'lon "
+             "qilinmagan — formatlash uchun haqiqiy qoida yo'q.",
+})
+_reg({
+    "key": "ij_law", "name": "International Journal of Law", "field": "law",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": "Raqamli (Vancouver uslubida kuzatilgan)",
+    "max_references": None,
+    "required_sections": ["Introduction", "Discussion", "Conclusion"],
+    "structure_note": None,
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": True,
+    "apc_usd": None, "apc_note": None, "ai_policy": None,
+    "indexing": [], "claimed_if": 15.57, "if_verified": False,
+    "predatory_signals": [
+        "IF 15.57 faqat ResearchBib'da — JCR'da hech bir huquq jurnali bunga yaqin emas",
+        "ISSN 1694-2442 — Mauritius'da ro'yxatga olingan, mazmuni deyarli butunlay o'zbek",
+        "Tahririyat hay'ati sahifasi BO'SH, aloqa sahifasida ism/email/manzil yo'q",
+        "Scopus, DOAJ, Web of Science, PubMed — hech birida yo'q",
+        "'2 kun qaror, 3 kun nashr' — haqiqiy taqrizga mos emas",
+        "Arabian Journal of Science va HSR London bilan BIR XIL shablon va server",
+    ],
+    "source_url": "https://ijl-apm.com/index.php/ijl",
+    "notes": "DIQQAT: bu nom bilan 3 xil jurnal bor. 15.57 raqami faqat Mauritius'dagi "
+             "ISSN 1694-2442 ga tegishli. Haqiqiy jurnallar: 'Int. J. of Law, Crime and "
+             "Justice' (Elsevier, IF ~1.4) va 'Int. J. of Law in Context' (Cambridge). "
+             "Qo'llanma e'lon qilinmagan.",
+})
+_reg({
+    "key": "arabian_j_science", "name": "Arabian Journal of Science", "field": "general",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": "Raqamli, kvadrat qavsda (kuzatilgan)",
+    "max_references": None,
+    "required_sections": ["Introduction", "Methods", "Results", "Discussion", "Conclusion"],
+    "structure_note": None,
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": True,
+    "apc_usd": 0, "apc_note": "Bepul — bu o'zi shubhali belgi (hajm bilan pul ishlash modeli).",
+    "ai_policy": None, "indexing": [], "claimed_if": 13.5, "if_verified": False,
+    "predatory_signals": [
+        "'IF 13.5' o'z saytida va ResearchBib'da — JCR/Scopus'da yo'q",
+        "Nomi Springer'ning HAQIQIY 'Arabian Journal for Science and Engineering' "
+        "(ISSN 2193-567X, IF 3.1) jurnaliga o'xshab qo'yilgan",
+        "ISSN 2308-5703 — Avstriyada, mazmuni Markaziy Osiyodan",
+        "Tahririyat hay'ati BO'SH; etika bayonoti va manzil yo'q",
+        "'2 kun qaror, 3 kun nashr' e'lon qilingan",
+        "Scopus, DOAJ, Web of Science, PubMed — hech birida yo'q",
+    ],
+    "source_url": "http://www.arabianjournalofscience.com/index.php/AJSI",
+    "notes": "Springer'ning shu nomga o'xshash jurnali HAQIQIY va indekslangan — "
+             "aralashtirmaslik kerak. 13.5 raqami faqat Avstriyadagi ushbu nomga tegishli.",
+})
+_reg({
+    "key": "hsr_london", "name": "HSR London – Houghton Street Review", "field": "general",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": None, "max_references": None,
+    "required_sections": ["Introduction", "Discussion", "Conclusion"],
+    "structure_note": "Title, Author information, Abstract, Keywords, Main text, Conclusion, References",
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": True,
+    "apc_usd": 0, "apc_note": "Bepul e'lon qilingan, lekin indekssiz + 3 kunlik nashr.",
+    "ai_policy": None, "indexing": [], "claimed_if": 15.9, "if_verified": False,
+    "predatory_signals": [
+        "NOMI TANILGAN MUASSASAGA TAYANADI: Houghton Street — London School of "
+        "Economics (LSE) manzili. Bu jurnalning LSE bilan aloqasi YO'Q",
+        "'IF 15.9' faqat ResearchBib'ga havola — JCR/Scopus'da yo'q",
+        "Tahririyat hay'ati sahifasida HECH KIM yo'q",
+        "Indekslash bo'limi BO'SH sarlavha — hech qanday indeks sanalmagan",
+        "Scopus, DOAJ (ISSN 2058-5519), Web of Science, PubMed — hech birida yo'q",
+        "Cheksiz ko'p soha (tibbiyot, huquq, muhandislik, turizm) — haqiqiy jurnalda bo'lmaydi",
+        "'2 kun qaror, 3 kun nashr'",
+    ],
+    "source_url": "https://houghtonstreetreview.com/index.php/hsr",
+    "notes": "LSE'ning o'z talabalik nashrlari 'Houghton Street Press' nomi bilan chiqadi — "
+             "bu jurnal ular bilan bog'liq emas. Eng kuchli qizil bayroq — nomning LSE "
+             "manziliga tayanishi.",
+})
+_reg({
+    "key": "ij_lls", "name": "International Journal of Literature and Language Studies",
+    "field": "literature",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": None, "max_references": None,
+    "required_sections": ["Introduction", "Discussion", "Conclusion"],
+    "structure_note": None,
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": True,
+    "apc_usd": None, "apc_note": None, "ai_policy": None,
+    "indexing": [], "claimed_if": 13.77, "if_verified": False,
+    "predatory_signals": [
+        "'IF 13.77' faqat ResearchBib'da — Clarivate MJL'da ISSN 2828-6235 uchun 0 natija",
+        "Tahririyat hay'ati sahifasi BO'SH — birorta muharrir ismi yo'q",
+        "Aloqa ma'lumotlari ziddiyatli: Indoneziya muharriri + Pokiston telefon raqami; "
+        "qo'llab-quvvatlash uchun 'professor' + Hindistonning namunaviy raqami (+91 98765 21438)",
+        "Domen jiujournal.org 2026-05-14 da ro'yxatga olingan; sayt o'zini ijujournal.org deb yozadi",
+        "Scopus, DOAJ, Crossref, Web of Science — hech birida yo'q",
+        "Bir xil server (167.235.222.200) va registrar — 3 ta jurnal bir kunda ro'yxatga olingan",
+    ],
+    "source_url": "https://jiujournal.org/index.php/ijlls",
+    "notes": "ISSN 2828-6235 haqiqiy va Indoneziyada ro'yxatga olingan, 2021-2023 maqolalari "
+             "Garuda'da bor. Lekin hozirgi sayt (domen 2026-mayda qayta olingan) "
+             "tekshirilmaydigan operatsiya.",
+})
+_reg({
+    "key": "ij_tar", "name": "International Journal of Technology and Academic Research",
+    "field": "technology",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": None, "max_references": None,
+    "required_sections": ["Introduction", "Methods", "Results", "Discussion", "Conclusion"],
+    "structure_note": None,
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": None,
+    "apc_usd": None, "apc_note": None, "ai_policy": None,
+    "indexing": [], "claimed_if": 14.91, "if_verified": False,
+    "predatory_signals": [
+        "Raqamlar O'ZIGA ZID: ResearchBib 14.91, jurnalning o'z PDF shabloni 15.9 — "
+        "ikkalasi ham JCR/Scopus'da emas",
+        "Tahririyat hay'ati sahifasi BO'SH — hech kim nomlanmagan",
+        "Aloqa: shaxsiy pochta (Ahmedresearcher@outlook.com) — institutsional email emas",
+        "Scopus, DOAJ, Crossref, OpenAlex, Web of Science — hammasida 0 natija",
+        "Domen 2026-05-14 da ro'yxatga olingan, bir xil serverda 3 ta jurnal bilan",
+        "'About' Pokiston deb yozadi, maqolalar mualliflari deyarli butunlay o'zbek",
+    ],
+    "source_url": "http://waerasia.org/index.php/ijtar",
+    "notes": "ISSN 2224-6878 haqiqiy va nomning tarixi bor (2011 da Pokiston, WAER "
+             "nashriyoti, ikki oylik). Hozirgi sayt (domen 2026-mayda qayta olingan) "
+             "nashriyotni, muharrirlarni va narxni ko'rsatmaydi.",
+})
+_reg({
+    "key": "emj_nrc", "name": "Egyptian Medical Journal of the National Research Center",
+    "field": "medical",
+    "word_limit_main_text": None, "abstract_type": None, "abstract_sections": [],
+    "abstract_word_limit": None, "reference_style": None, "max_references": None,
+    "required_sections": ["Introduction", "Methods", "Results", "Discussion", "Conclusion"],
+    "structure_note": None,
+    "keywords_min": None, "keywords_max": None, "accepts_reviews": True,
+    "apc_usd": None, "apc_note": None, "ai_policy": None,
+    "indexing": [], "claimed_if": 12.3, "if_verified": False,
+    "predatory_signals": [
+        "NOMI HAQIQIY DAVLAT MUASSASASIGA TAYANADI: Misr Milliy Tadqiqot Markazi (NRC, Qohira). "
+        "Hozirgi saytda NRC bilan aloqa, NRC muharrirlari yoki NRC manzili YO'Q",
+        "Shu nomdagi HAQIQIY jurnal 2010 atrofida to'xtagan (NLM katalogi)",
+        "IF o'z ichida zid: PDF shablonida 12.3, About sahifasida 16,87 — ikkalasi ham tasdiqlanmagan",
+        "Scopus, Web of Science, DOAJ, Crossref (DOI yo'q), PubMed, OpenAlex — hammasida 0 natija",
+        "Tahririyat hay'ati BO'SH; aloqa sahifasida mas'ul shaxs 'ssa' deb yozilgan (ism/email yo'q)",
+        "Domen 2026-05-15 da ro'yxatga olingan — bir xil server va registrar",
+        "Oylik jurnal uchun juda katta hajm; mualliflar deyarli butunlay o'zbek",
+    ],
+    "source_url": "http://www.mjnrc.com/index.php/emjn/",
+    "notes": "Bu nom bilan haqiqiy jurnal bo'lgan: ISSN 1687-1278, NIDOC/Akademiya, Qohira, "
+             "IMEMR ro'yxatida. U 2010 atrofida to'xtagan. Hozirgi onlayn ISSN 2090-5386 "
+             "(2023) saytga bog'langan, sayt esa 2026-mayda qayta ro'yxatga olingan. "
+             "'NRC nashri, IF 12.3' da'vosini tasdiqlanmagan deb hisoblash kerak.",
+})
+
 
 def list_profiles() -> list[dict]:
     """Mavjud profillar ro'yxati (frontend/API uchun qisqa ko'rinish)."""
