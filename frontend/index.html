@@ -23,6 +23,18 @@
   #article-output { white-space: pre-wrap; line-height: 1.6; font-size: 15px; }
   .review-box { background: #fff8e6; border: 1px solid #f0d98c; border-radius: 8px; padding: 14px; margin-top: 16px; font-size: 14px; }
   .sources-list { font-size: 13px; color: #555; }
+  /* Natija kartasi: matn emas, YUKLAB OLISH tugmasi birinchi ko'rinadi */
+  .result-title { font-size: 17px; font-weight: 700; line-height: 1.4; margin: 6px 0 12px; }
+  .result-meta { font-size: 14px; color: #444; background: #f4f4f6; border-radius: 8px; padding: 12px 14px; line-height: 1.7; }
+  .download-btn { background: #0a7d33; font-size: 16px; padding: 16px; margin-top: 14px; }
+  .download-btn:hover { background: #086a2a; }
+  .details-box { margin-top: 14px; border-top: 1px solid #eee; padding-top: 10px; }
+  .details-box summary { cursor: pointer; font-size: 14px; color: #444; font-weight: 600; padding: 6px 0; }
+  .details-box[open] summary { margin-bottom: 8px; }
+  #article-output { line-height: 1.6; font-size: 14px; color: #333; max-height: 340px; overflow-y: auto; white-space: normal; }
+  #article-output h3 { font-size: 15px; margin: 14px 0 6px; }
+  #article-output h4 { font-size: 14px; margin: 12px 0 4px; color: #444; }
+  #article-output p { margin: 8px 0; }
   label { font-weight: 600; font-size: 14px; }
 </style>
 </head>
@@ -64,11 +76,18 @@
 </div>
 
 <div class="card" id="result-card" style="display:none">
-  <h2>Natija</h2>
-  <div id="article-output"></div>
-  <div class="review-box" id="review-output"></div>
-  <div class="sources-list" id="sources-output"></div>
-  <button onclick="downloadDocx()">Word (.docx) yuklab olish</button>
+  <h2>✅ Maqola tayyor</h2>
+  <div class="result-title" id="result-title"></div>
+  <div class="result-meta" id="result-meta"></div>
+  <button class="download-btn" onclick="downloadDocx()">⬇️ Word (.docx) yuklab olish</button>
+  <details class="details-box">
+    <summary>Manbalar ro'yxati (<span id="src-count">0</span> ta)</summary>
+    <div class="sources-list" id="sources-output"></div>
+  </details>
+  <details class="details-box">
+    <summary>Maqola matnini ko'rish</summary>
+    <div id="article-output"></div>
+  </details>
 </div>
 
 <script>
@@ -116,21 +135,65 @@
       `<span class="spinner"></span>${step || "Ishlanmoqda..."}`;
   }
 
+  // Matnni xavfsiz HTML'ga aylantiramiz (## -> sarlavha, qator -> paragraf).
+  // Bu faqat "matnni ko'rish" ochilganda ishlatiladi — asosiy ekranda matn yo'q.
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function mdToHtml(md) {
+    const out = [];
+    for (const raw of md.split("\n")) {
+      const line = escapeHtml(raw.trim());
+      if (!line) continue;
+      const heading = line.match(/^#{1,4}\s+(.*)$/);
+      if (heading) {
+        const level = raw.trim().startsWith("###") ? "h4" : "h3";
+        out.push(`<${level}>${heading[1]}</${level}>`);
+      } else {
+        out.push(`<p>${line}</p>`);
+      }
+    }
+    return out.join("");
+  }
+
   function renderResult(data) {
     currentSessionId = data.session_id;
-    document.getElementById("result-card").style.display = "block";
-    document.getElementById("article-output").textContent = data.article_text;
+
+    // Sarlavhani matndan ajratamiz — kartada butun maqola emas, faqat sarlavha ko'rinadi
+    const lines = (data.article_text || "").split("\n");
+    let title = "", bodyFrom = 0;
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      if (lines[i].trim().startsWith("#")) {
+        title = lines[i].trim().replace(/^#+\s*/, "");
+        bodyFrom = i + 1;
+      }
+      break;
+    }
+
+    document.getElementById("result-title").textContent = title || data.topic || "Maqola";
+    // To'liq matn yopiq (<details>) holda saqlanadi — kerak bo'lsa ochib ko'riladi
+    document.getElementById("article-output").innerHTML =
+      mdToHtml(lines.slice(bodyFrom).join("\n"));
 
     const review = data.review_summary || {};
-    document.getElementById("review-output").innerHTML = `
-      <strong>So'z soni:</strong> ${data.word_count} | <strong>Qayta yozishlar:</strong> ${data.rewrite_attempts}<br>
-      <strong>Gemini tekshiruvi:</strong> ${review.manbalarga_moslik || "—"}<br>
-      <strong>Xulosa:</strong> ${review.umumiy_baho || "—"}
+    document.getElementById("result-meta").innerHTML = `
+      <strong>So'z soni:</strong> ${data.word_count} (talab: 1800-2500)<br>
+      <strong>Manbalar:</strong> ${data.sources.length} ta<br>
+      <strong>Qayta yozishlar:</strong> ${data.rewrite_attempts}<br>
+      <strong>Gemini tekshiruvi:</strong> ${escapeHtml(review.manbalarga_moslik || "—")}<br>
+      <strong>Xulosa:</strong> ${escapeHtml(review.umumiy_baho || "—")}
     `;
 
+    document.getElementById("src-count").textContent = data.sources.length;
     document.getElementById("sources-output").innerHTML =
-      "<strong>Ishlatilgan manbalar:</strong><br>" +
-      data.sources.map(s => `• ${s.title} (${s.year})`).join("<br>");
+      data.sources.map(s => `• ${escapeHtml(s.title)} (${s.year})`).join("<br>");
+
+    // Natija kartasi DARHOL ko'rinadi (yuklab olish tugmasi bilan) va ekranga olib kelinadi
+    const card = document.getElementById("result-card");
+    card.style.display = "block";
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   const POLL_INTERVAL_MS = 2000;
