@@ -82,6 +82,10 @@ class GenerateRequest(BaseModel):
     is_medical: bool = True
     citation_style: str = "vancouver"  # "vancouver" yoki "apa"
     language: str = "en"  # "uz", "en", "ru"
+    # ICMJE/COPE talab qiladigan AI deklaratsiyasi Word faylga qo'shilsinmi.
+    # Standart: True — deklaratsiya qilinmasa maqola rad etilishi yoki
+    # chop etilgandan keyin qaytarib olinishi mumkin.
+    ai_disclosure: bool = True
 
 
 @app.get("/")
@@ -253,6 +257,7 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         "review": review,
         "citation_style": req.citation_style,
         "language": req.language,
+        "ai_disclosure": req.ai_disclosure,
     }
 
     payload = {
@@ -365,6 +370,7 @@ async def download_docx(session_id: str):
         article_text=data["article_text"],
         sources=data["sources"],
         citation_style=data["citation_style"],
+        ai_disclosure=data.get("ai_disclosure", True),
     )
 
     return StreamingResponse(

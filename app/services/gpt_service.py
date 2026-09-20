@@ -111,6 +111,58 @@ def _banned_phrases_block(language: str) -> str:
     return ", ".join(f'"{p}"' for p in phrases)
 
 
+# Token narxlari (1 million token uchun, AQSH dollari).
+# Manba: OpenAI narxlar jadvali, gpt-5.6 oilasi — 2026-yil 30-iyuldagi pasaytirishdan keyin
+# (Luna 80%, Terra 20% arzonlashgan; Sol o'zgarmagan).
+PRICING_PER_M = {
+    "gpt-5.6-terra": {"in": 2.00, "out": 12.00},
+    "gpt-5.6-sol":   {"in": 5.00, "out": 30.00},
+    "gpt-5.6-luna":  {"in": 0.20, "out": 1.20},
+    "gpt-5.5":       {"in": 5.00, "out": 30.00},
+    "gpt-5.4":       {"in": 2.50, "out": 15.00},
+    "gpt-5.1":       {"in": 1.25, "out": 10.00},
+    "gpt-5":         {"in": 1.25, "out": 10.00},
+    "gpt-4.1":       {"in": 2.00, "out": 8.00},
+}
+DEFAULT_PRICE = {"in": 2.00, "out": 8.00}
+
+# Sarf statistikasi. FAQAT server logiga yoziladi — mijozga qaytarilmaydi,
+# chunki bu sizning tannarxingiz (mijoz ko'rmasligi kerak).
+USAGE_STATS: dict = {"calls": 0, "input_tokens": 0, "output_tokens": 0,
+                     "cost_usd": 0.0, "by_model": {}}
+
+
+def _price_for(model: str) -> dict:
+    """Model nomiga mos narxni topadi. Uzunroq moslik ustun (gpt-5.6 vs gpt-5)."""
+    for name in sorted(PRICING_PER_M, key=len, reverse=True):
+        if model.startswith(name):
+            return PRICING_PER_M[name]
+    return DEFAULT_PRICE
+
+
+def _record_usage(model: str, usage: dict) -> float:
+    """Token sarfini hisoblab statistikaga qo'shadi va shu chaqiruv narxini qaytaradi."""
+    in_tok = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    out_tok = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+    price = _price_for(model)
+    cost = in_tok / 1_000_000 * price["in"] + out_tok / 1_000_000 * price["out"]
+
+    USAGE_STATS["calls"] += 1
+    USAGE_STATS["input_tokens"] += in_tok
+    USAGE_STATS["output_tokens"] += out_tok
+    USAGE_STATS["cost_usd"] += cost
+
+    per = USAGE_STATS["by_model"].setdefault(model, {"calls": 0, "in": 0, "out": 0, "cost": 0.0})
+    per["calls"] += 1
+    per["in"] += in_tok
+    per["out"] += out_tok
+    per["cost"] += cost
+
+    logger.info("GPT (%s): %s kirish + %s chiqish token = $%.4f (maqola jami: $%.4f)",
+                model, in_tok, out_tok, cost, USAGE_STATS["cost_usd"])
+    return cost
+
+
 async def _call_gpt(system_prompt: str, user_prompt: str, temperature: float, max_tokens: int) -> str:
     """
     GPT'ni chaqiradi. Model eski parametrlarni qabul qilmasa (400) yoki model
@@ -148,6 +200,12 @@ async def _call_gpt(system_prompt: str, user_prompt: str, temperature: float, ma
                 logger.error("GPT (%s) javobi kutilgan shaklda emas: %s", model, resp.text[:300])
                 last_error = e
                 continue
+
+            # Token sarfi va xarajatni hisobga olamiz (logga yoziladi)
+            try:
+                _record_usage(model, resp.json().get("usage") or {})
+            except Exception:
+                logger.warning("Token sarfini hisoblab bo'lmadi (model=%s)", model)
 
             if content and content.strip():
                 if model != GPT_MODEL:

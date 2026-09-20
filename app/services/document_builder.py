@@ -53,7 +53,28 @@ def _format_reference(source: dict, index: int, style: str = "vancouver") -> str
         return _clean_sentence(ref)
 
 
-def build_docx(title: str, article_text: str, sources: list[dict], citation_style: str = "vancouver") -> bytes:
+AI_DISCLOSURE_TEXT = [
+    "This manuscript was prepared with the assistance of artificial intelligence "
+    "tools. The authors used [TOOL NAME, version] ([MANUFACTURER]) on [DATE(S)] to "
+    "assist with drafting and structuring this narrative review and with language "
+    "editing. The authors have reviewed and edited all AI-assisted content and take "
+    "full responsibility for the accuracy, integrity, and originality of the entire "
+    "manuscript. No AI tool is listed as an author, and no AI tool was used to "
+    "generate or format the reference list: all citations were retrieved from "
+    "bibliographic databases (PubMed, Semantic Scholar) and their digital object "
+    "identifiers (DOIs) were verified against Crossref. This statement is provided "
+    "in accordance with ICMJE and COPE guidance on the use of AI in publishing.",
+
+    "Note to the author: replace the bracketed fields above with the actual tool "
+    "name, version, manufacturer and dates of use, and report the same information "
+    "in the cover letter at submission. Check your target journal's instructions for "
+    "authors, as a small number of journals prohibit AI-assisted drafting entirely. "
+    "Delete this note before submission.",
+]
+
+
+def build_docx(title: str, article_text: str, sources: list[dict],
+               citation_style: str = "vancouver", ai_disclosure: bool = True) -> bytes:
     doc = Document()
 
     # Maqolaning O'Z H1 sarlavhasi bo'lsa — hujjat sarlavhasi sifatida shuni ishlatamiz.
@@ -95,6 +116,15 @@ def build_docx(title: str, article_text: str, sources: list[dict], citation_styl
 
         p = doc.add_paragraph(_clean_inline(block))
         p.style.font.size = Pt(11)
+
+    # ICMJE/COPE talabi: AI ishlatilgani ochiq deklaratsiya qilinishi SHART.
+    # Deklaratsiya qilinmasa — maqola rad etilishi yoki chop etilgandan keyin
+    # qaytarib olinishi (retraction) mumkin. Shuning uchun standart holatda qo'shiladi.
+    if ai_disclosure:
+        doc.add_heading("Acknowledgment: Use of Artificial Intelligence", level=2)
+        for para in AI_DISCLOSURE_TEXT:
+            note = doc.add_paragraph(para)
+            note.style.font.size = Pt(10)
 
     doc.add_page_break()
     doc.add_heading("References", level=2)
