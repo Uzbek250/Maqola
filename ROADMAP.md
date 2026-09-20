@@ -18,21 +18,21 @@ Shuning uchun natija "maqola" bo'lib chiqadi, lekin "topshirishga tayyor qo'lyoz
 | 3 | Maqola tanasi yozish | ✅ bor | — |
 | 4 | Sifat tekshiruvi (AI) | ✅ bor | — |
 | 5 | Word (.docx) | ✅ bor | — |
-| 6 | **Structured abstract + kalit so'zlar** | ❌ yo'q | **1** |
-| 7 | **Ma'lumot ajratish jadvali** (dizayn, n, populyatsiya) | ❌ yo'q | **1** |
-| 8 | **Bayonotlar to'plami** (COI, funding, data availability, hissa) | ⚠️ qisman | **1** |
-| 9 | **Title page** (muallif, affiliation, ORCID, corresponding) | ❌ yo'q | **1** |
-| 10 | **BibTeX/RIS eksport** (Zotero/EndNote uchun) | ❌ yo'q | **1** |
-| 11 | **Cover letter** | ❌ yo'q | **1** |
-| 12 | **Inson tekshiruvi ro'yxati** | ❌ yo'q | **1** |
-| 13 | **Yagona ZIP paket** (jurnal talab qiladigan fayl to'plami) | ❌ yo'q | **1** |
-| 14 | **Maqsadli jurnal profili + unga moslash** | ❌ yo'q | **2** |
-| 15 | **Muvofiqlik tekshiruvi** (so'z/ref limiti, majburiy bo'limlar) | ❌ yo'q | **2** |
-| 16 | **To'liq matnli tahlil** (abstract o'rniga PMC Open Access) | ❌ yo'q | **3** |
-| 17 | Til sayqali (jurnal darajasiga) | ⚠️ qisman | **3** |
-| 18 | Antiplagiat / o'xshashlik tekshiruvi | ❌ yo'q | **3** |
-| 19 | Model tanlovi (luna/terra A/B) | ⚠️ qilingan | **3** |
-| 20 | Taqrizchiga javob (revision) | ❌ yo'q | **4** |
+| 6 | **Structured abstract + kalit so'zlar** | ✅ **bor** | — |
+| 7 | **Ma'lumot ajratish jadvali** | ✅ **bor** | — |
+| 8 | **Bayonotlar to'plami** | ✅ **bor** | — |
+| 9 | **Title page** (muallif joylari tayyor) | ✅ **bor** | — |
+| 10 | **BibTeX/RIS eksport** | ✅ **bor** | — |
+| 11 | **Cover letter** | ✅ **bor** | — |
+| 12 | **Inson tekshiruvi ro'yxati** | ✅ **bor** | — |
+| 13 | **Yagona ZIP paket** | ✅ **bor** | — |
+| 14 | **Maqsadli jurnal profili + unga moslash** | ✅ **bor** (8 jurnal) | — |
+| 15 | **Muvofiqlik tekshiruvi** | ✅ **bor** | — |
+| 16 | **To'liq matnli tahlil** (PMC Open Access) | ✅ **bor** | — |
+| 17 | Til sayqali (jurnal darajasiga) | ❌ yo'q | 3 |
+| 18 | Antiplagiat / o'xshashlik tekshiruvi | ❌ yo'q | 3 |
+| 19 | Model tanlovi (luna/terra A/B) | ⚠️ qisman (1 namuna) | 3 |
+| 20 | Taqrizchiga javob (revision) | ❌ yo'q | 4 |
 
 ---
 
@@ -52,18 +52,22 @@ hamma fayl bo'ladi. Inson faqat tekshiradi va muallif ma'lumotlarini to'ldiradi.
 - Inson tekshiruvi ro'yxati — nimalarni qo'lda tekshirish shart (raqamlar, n, xulosalar).
 - `/download/{session_id}/package` — ZIP.
 
-### Bosqich 2 — Jurnal profili + muvofiqlik
-- `journals.py`: jurnal profillari (so'z limiti, tuzilma, ref uslubi, majburiy bo'limlar,
-  abstract turi). Standart + mijoz qo'shadigan profillar.
-- Maqola profilga moslab yoziladi (masalan Cureus tuzilmasi boshqacha).
-- **Muvofiqlik tekshiruvi**: so'z soni, ref soni, majburiy bo'limlar bor-yo'qligi —
-  natijada "✅/⚠️" ro'yxati. Bu insonning 10% ini ham yengillashtiradi.
+### Bosqich 2 — Jurnal profili + muvofiqlik  ✅ BAJARILDI
+- `journals.py`: 8 jurnal profili (Cureus, Frontiers in Medicine, Heliyon, JCM,
+  Nutrients, Medicine Baltimore, PLOS ONE, BMJ Open) — rasmiy talablardan,
+  `source_url` bilan. **3 tasi narrative review qabul qilmaydi** va shunday
+  belgilangan.
+- Maqola profilga mos yoziladi (so'z limiti, majburiy bo'limlar, havola limiti).
+- **Muvofiqlik tekshiruvi**: so'z soni, havola soni, bo'limlar, abstract turi va
+  limiti (so'z/belgi), kalit so'zlar, sharh qabul qilinishi, AI siyosati, APC.
+  Natija `COMPLIANCE.md` bo'lib ZIP'ga tushadi.
 
-### Bosqich 3 — Manba sifati va to'liq matn
-- PMC Open Access'dan **to'liq matn** olish (hozir faqat abstract) — sifat shiftini
-  ko'taradigan eng katta qadam.
-- Til sayqali: alohida "language editor" bosqichi.
-- O'xshashlik: yozilgan matn manbalarga juda o'xshab ketmaganini tekshirish.
+### Bosqich 3 — Manba sifati va to'liq matn  ✅ BAJARILDI (til sayqali qoldi)
+- `fulltext.py`: Europe PMC orqali ochiq maqolalarning **to'liq matni** (kalitsiz).
+  Sinovda 4/7 manba, 116 637 belgi; bitta maqola abstract'dan **19x** ko'proq.
+- Promptda manba `[FULL TEXT]` yoki `[ABSTRACT ONLY]` deb belgilanadi.
+- Xarajat: $0.0160 -> $0.0378 maqola boshiga.
+- **Qoldi:** til sayqali bosqichi va o'xshashlik tekshiruvi.
 
 ### Bosqich 4 — Topshirgandan keyin
 - Taqrizchi izohlariga javob (response to reviewers) generatori.
