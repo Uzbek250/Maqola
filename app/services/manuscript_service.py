@@ -264,7 +264,8 @@ Ilova ishning ~90% ini qildi. Quyidagilar **majburiy** — muallif javobgar.
 # ------------------------------------------------------------------- ZIP paket
 
 def build_zip(article_markdown: str, sources: list[dict], meta: dict,
-              docx_bytes: bytes, checklist: str, word_count: int) -> bytes:
+              docx_bytes: bytes, checklist: str, word_count: int,
+              compliance_markdown: str = "") -> bytes:
     """Topshirishga kerak bo'lgan hamma faylni bitta ZIP'ga yig'adi."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -274,6 +275,8 @@ def build_zip(article_markdown: str, sources: list[dict], meta: dict,
         z.writestr("references.ris", build_ris(sources))
         z.writestr("statements.md", "\n\n".join(f"## {t}\n\n{b}" for t, b in STATEMENT_TEMPLATES))
         z.writestr("cover_letter.md", meta.get("cover_letter") or "[cover letter not generated]")
+        if compliance_markdown:
+            z.writestr("COMPLIANCE.md", compliance_markdown)
 
         front = {
             "structured_abstract": meta.get("structured_abstract"),
@@ -296,6 +299,7 @@ def build_zip(article_markdown: str, sources: list[dict], meta: dict,
                    "cover_letter.md  — cover letter (jurnal nomini almashtiring)\n"
                    "front_matter.json— abstract, kalit so'zlar, highlights\n"
                    "study_table.json — ma'lumot ajratish jadvali\n"
+                   "COMPLIANCE.md    — jurnal talablariga muvofiqlik tekshiruvi\n"
                    "CHECKLIST.md     — QO'LDA tekshirish ro'yxati (majburiy)\n\n"
                    f"Manbalar: {len(sources)} | So'z: {word_count}\n")
     return buf.getvalue()

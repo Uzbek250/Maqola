@@ -157,6 +157,14 @@ def _parse_pubmed_xml(xml_text: str) -> list[dict]:
                         doi = _text(el)
                         break
 
+            # PMC ID — ochiq (open access) maqolalar uchun. To'liq matnni shu orqali
+            # olamiz, chunki abstract butun tadqiqotni ko'rsatmaydi.
+            pmc_id = ""
+            for el_id in article.findall("PubmedData/ArticleIdList/ArticleId"):
+                if el_id.get("IdType") == "pmc":
+                    pmc_id = _text(el_id)
+                    break
+
             if title and len(abstract) >= MIN_ABSTRACT_LENGTH:
                 results.append({
                     "source": "PubMed",
@@ -167,6 +175,7 @@ def _parse_pubmed_xml(xml_text: str) -> list[dict]:
                     "journal": journal,
                     "year": year_text,
                     "doi": doi,
+                    "pmc_id": pmc_id,
                     "citation_count": None,  # PubMed bu ma'lumotni bermaydi
                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
                 })

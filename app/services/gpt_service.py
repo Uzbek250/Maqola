@@ -94,10 +94,22 @@ def _format_sources_for_prompt(sources: list[dict]) -> str:
         title = s.get("title", "")
         journal = s.get("journal", "")
         abstract = s.get("abstract", "")
+
+        # To'liq matn bo'lsa — shuni ishlatamiz (Bosqich 3). Model qaysi manba
+        # to'liq o'qilganini va qaysi biri faqat abstract ekanini bilishi kerak:
+        # abstract'dan aniqlik talab qilib bo'lmaydi.
+        full_text = (s.get("full_text") or "").strip()
+        if full_text:
+            detail = f"    FULL TEXT (open access — primary source of detail):\n{full_text}"
+            mark = " [FULL TEXT]"
+        else:
+            detail = f"    Abstract: {abstract}"
+            mark = " [ABSTRACT ONLY]"
+
         lines.append(
             f'[{i}] {authors} ({year}). "{title}". '
-            f"{journal}{citation_note}. DOI: {doi_text}\n"
-            f"    Abstract: {abstract}"
+            f"{journal}{citation_note}. DOI: {doi_text}{mark}\n"
+            f"{detail}"
         )
     return "\n\n".join(lines)
 
@@ -259,14 +271,47 @@ async def write_article(
     outline: str | None = None,
     search_query: str | None = None,
     databases: list[str] | None = None,
+    journal_profile: dict | None = None,
 ) -> str:
     """
     2-bosqich: outline asosida to'liq ilmiy maqola yoziladi.
     Uzunlik 1800-2500 so'z bilan cheklanadi, AI-klishelar qat'iy taqiqlanadi.
+
+    `journal_profile` berilsa — maqola nishon jurnal talabiga mos yoziladi
+    (so'z limiti, majburiy bo'limlar, havola soni) — Bosqich 2.
     """
     lang_name = LANGUAGE_NAMES.get(language, "ingliz")
     sources_block = _format_sources_for_prompt(sources)
     banned = _banned_phrases_block(language)
+
+    # Nishon jurnal talablari. So'z limiti jurnal talabidan kelib chiqib toraytiriladi:
+    # jurnal 2000 so'z desa, 2500 yozish muvofiqlikni buzadi.
+    jp = journal_profile or {}
+    eff_min, eff_max = MIN_WORDS, MAX_WORDS
+    jl = jp.get("word_limit_main_text")
+    if jl and jl < eff_max:
+        eff_max = int(jl)
+        eff_min = min(eff_min, int(jl * 0.8))
+
+    jlines = []
+    if jp.get("name") and jp.get("key") not in (None, "generic"):
+        jlines.append(f"- Nishon jurnal: {jp['name']}")
+    if jl:
+        jlines.append(f"- Asosiy matn so'z limiti: {jl} so'z — BUNDAN OSHMASIN")
+    if jp.get("required_sections"):
+        jlines.append(
+            "- Bu bo'limlar MAJBURIY va sarlavhalari AYNAN quyidagicha yozilsin "
+            "(boshqa nom bermang, birlashtirmang, tashlab ketmang): "
+            + " / ".join(jp["required_sections"])
+        )
+    if jp.get("abstract_type") == "structured" and jp.get("abstract_sections"):
+        jlines.append("- Abstract tuzilmasi: " + ", ".join(jp["abstract_sections"]))
+    if jp.get("max_references"):
+        jlines.append(f"- Havolalar soni {jp['max_references']} tadan oshmasin. "
+                      f"Senga {len(sources)} ta manba berilgan — ortiqchasini ishlatma, "
+                      f"keraksizlarini tashlab ket.")
+    journal_block = ("\n\nNISHON JURNAL TALABLARI (bularga qat'iy amal qil):\n"
+                     + "\n".join(jlines)) if jlines else ""
 
     outline_block = f"\n\nTAYYORLANGAN OUTLINE (shu rejaga qat'iy amal qil):\n{outline}" if outline else ""
 
@@ -295,7 +340,7 @@ QAT'IY QOIDALAR:
 3. Gaplar uzunligi va tuzilishi XILMA-XIL bo'lsin. Ketma-ket bir xil uzunlikdagi yoki bir xil
    grammatik tuzilishdagi gaplar yozish taqiqlanadi - bu AI matniga xos belgi.
 4. Paragraflar orasida tabiiy o'tish bo'lsin, mexanik ravishda emas.
-5. Maqola {MIN_WORDS}-{MAX_WORDS} so'z oralig'ida bo'lishi SHART; nishon ~{(MIN_WORDS+MAX_WORDS)//2} so'z.
+5. Maqola {eff_min}-{eff_max} so'z oralig'ida bo'lishi SHART; nishon ~{(eff_min+eff_max)//2} so'z.
    Oraliqdan OSHIB KETSANGIZ matn rad etiladi va qayta ishlanadi - bo'lim sonini ko'paytirib
    uzaytirmang, keraksiz takror yozmang. Yozib bo'lgach so'z sonini o'zingiz tekshiring.
 6. SARLAVHA HALOLLIGI: sarlavha maqolada HAQIQATDA bor narsani va'da qilsin. Agar manbalar
@@ -340,6 +385,7 @@ MANBALAR:
 {sources_block}
 {outline_block}
 {method_block}
+{journal_block}
 
 Maqolani {lang_name} tilida, {citation_style} sitata usulida yoz.
 

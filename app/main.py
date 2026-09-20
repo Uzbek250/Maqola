@@ -14,6 +14,9 @@ from app.services import gemini_service
 from app.services import gpt_service
 from app.services import document_builder
 from app.services import manuscript_service
+from app.services import fulltext as fulltext_service
+from app.services import journals as journals_service
+from app.services import compliance as compliance_service
 
 # Xatolarning haqiqiy sababi Render loglarida ko'rinishi uchun
 logging.basicConfig(
@@ -87,6 +90,10 @@ class GenerateRequest(BaseModel):
     # Standart: False — hujjat "AI qurgan" deb belgilanmaydi; ishni ilova bajaradi,
     # natijani inson qo'lda tekshiradi. Kerak bo'lsa true qilib yuboriladi.
     ai_disclosure: bool = False
+
+    # Maqsadli jurnal kaliti (Bosqich 2). Ro'yxat: GET /journals
+    # Berilsa — maqola o'sha jurnal talabiga mos yoziladi va tekshiriladi.
+    journal: str = "generic"
 
 
 @app.get("/")
@@ -177,6 +184,19 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
     logger.info("Manbalar: %s ta | bazalar: %s | so'rov: %r",
                 len(found_sources), databases, search_query)
 
+    # Ochiq (open access) maqolalarning TO'LIQ matnini olamiz — abstract butun
+    # tadqiqotni ko'rsatmaydi (Bosqich 3). Olinmaganlar abstract bilan qoladi.
+    await _progress(job, 30, "To'liq matnlar olinmoqda")
+    try:
+        found_sources = await fulltext_service.enrich_with_full_text(found_sources)
+        ft_stats = fulltext_service.full_text_stats(found_sources)
+        logger.info("To'liq matn: %s/%s manba | %s belgi",
+                    ft_stats["full_text_count"], len(found_sources), ft_stats["total_chars"])
+    except Exception:
+        logger.exception("To'liq matn olishda xato — abstract bilan davom etamiz")
+        ft_stats = {"full_text_count": 0, "abstract_only_count": len(found_sources),
+                    "total_chars": 0}
+
     await _progress(job, 35, "Maqola rejasi tuzilmoqda")
 
     try:
@@ -186,6 +206,7 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         article_text = await gpt_service.write_article(
             req.topic, found_sources, req.citation_style, req.language, outline=outline,
             search_query=search_query, databases=databases,
+            journal_profile=journals_service.get_profile(req.journal),
         )
     except Exception:
         logger.exception("Maqola yozishda xato (mavzu=%r)", req.topic)
@@ -262,6 +283,14 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
     word_count = len(article_text.split())
     checklist = manuscript_service.build_checklist(word_count, len(found_sources), meta)
 
+    # Muvofiqlik tekshiruvi (Bosqich 2): maqola nishon jurnal talabiga mos keladimi.
+    profile = journals_service.get_profile(req.journal)
+    compliance = compliance_service.check_compliance(article_text, found_sources, meta, profile)
+    logger.info("Muvofiqlik (%s): %s | ✅%s ⚠️%s ❌%s", profile.get("name"),
+                "o'tkazdi" if compliance["passed"] else "o'tkarmadi",
+                compliance["summary"]["ok"], compliance["summary"]["warn"],
+                compliance["summary"]["fail"])
+
     # session_id oxiriga qisqa unikal qism qo'shamiz — bir xil mavzuni ikki mijoz
     # yaratsa, ikkinchisi birinchisining sessiyasini ustiga yozib qo'ymasin.
     session_id = f"{req.topic[:40].replace(' ', '_')}_{uuid.uuid4().hex[:6]}"
@@ -275,6 +304,9 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         "ai_disclosure": req.ai_disclosure,
         "meta": meta,
         "checklist": checklist,
+        "full_text_stats": ft_stats,
+        "compliance": compliance,
+        "journal": profile.get("key"),
     }
 
     payload = {
@@ -287,6 +319,16 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
             for s in found_sources
         ],
         "review_summary": review,
+        # To'liq matn statistikasi — mijoz qancha manba to'liq o'qilganini ko'radi
+        "full_text": ft_stats,
+        # Muvofiqlik hisoboti (Bosqich 2) — qisqa ko'rinish
+        "compliance": {
+            "journal": compliance["journal"],
+            "passed": compliance["passed"],
+            "summary": compliance["summary"],
+            "issues": [c["detail"] for c in compliance["checks"]
+                       if c["status"] in ("fail", "warn")],
+        },
         # Paket qismlari haqida qisqa ma'lumot (matnning o'zi ZIP ichida)
         "package": {
             "structured_abstract": bool(meta.get("structured_abstract")),
@@ -406,6 +448,12 @@ async def download_docx(session_id: str):
     )
 
 
+@app.get("/journals")
+async def list_journals():
+    """Mavjud jurnal profillari (Bosqich 2). `journal` parametri uchun kalitlar."""
+    return {"journals": journals_service.list_profiles()}
+
+
 @app.get("/download/{session_id}/package")
 async def download_package(session_id: str):
     """
@@ -431,6 +479,8 @@ async def download_package(session_id: str):
         docx_bytes=docx_bytes,
         checklist=data.get("checklist") or "",
         word_count=len(data["article_text"].split()),
+        compliance_markdown=compliance_service.compliance_to_markdown(data["compliance"])
+        if data.get("compliance") else "",
     )
 
     return StreamingResponse(
