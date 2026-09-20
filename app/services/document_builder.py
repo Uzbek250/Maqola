@@ -74,7 +74,7 @@ AI_DISCLOSURE_TEXT = [
 
 
 def build_docx(title: str, article_text: str, sources: list[dict],
-               citation_style: str = "vancouver", ai_disclosure: bool = True) -> bytes:
+               citation_style: str = "vancouver", ai_disclosure: bool = False) -> bytes:
     doc = Document()
 
     # Maqolaning O'Z H1 sarlavhasi bo'lsa — hujjat sarlavhasi sifatida shuni ishlatamiz.

@@ -13,6 +13,7 @@ from app.services import sources as sources_service
 from app.services import gemini_service
 from app.services import gpt_service
 from app.services import document_builder
+from app.services import manuscript_service
 
 # Xatolarning haqiqiy sababi Render loglarida ko'rinishi uchun
 logging.basicConfig(
@@ -83,9 +84,9 @@ class GenerateRequest(BaseModel):
     citation_style: str = "vancouver"  # "vancouver" yoki "apa"
     language: str = "en"  # "uz", "en", "ru"
     # ICMJE/COPE talab qiladigan AI deklaratsiyasi Word faylga qo'shilsinmi.
-    # Standart: True — deklaratsiya qilinmasa maqola rad etilishi yoki
-    # chop etilgandan keyin qaytarib olinishi mumkin.
-    ai_disclosure: bool = True
+    # Standart: False — hujjat "AI qurgan" deb belgilanmaydi; ishni ilova bajaradi,
+    # natijani inson qo'lda tekshiradi. Kerak bo'lsa true qilib yuboriladi.
+    ai_disclosure: bool = False
 
 
 @app.get("/")
@@ -247,6 +248,20 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         except Exception:
             logger.exception("Uzunlikni moslashtirib bo'lmadi — mavjud matn qoldiriladi")
 
+    # Qo'lyozma paketi: abstract, kalit so'zlar, jadval, cover letter (ROADMAP Bosqich 1).
+    # Xato bo'lsa ham maqola saqlanadi — paket shunchaki to'liq bo'lmaydi.
+    await _progress(job, 92, "Qo'lyozma paketi yig'ilmoqda")
+    meta: dict = {}
+    try:
+        meta = await manuscript_service.build_package_meta(
+            req.topic, article_text, found_sources, req.language
+        )
+    except Exception:
+        logger.exception("Paket metama'lumotini yasab bo'lmadi — maqola baribir qaytariladi")
+
+    word_count = len(article_text.split())
+    checklist = manuscript_service.build_checklist(word_count, len(found_sources), meta)
+
     # session_id oxiriga qisqa unikal qism qo'shamiz — bir xil mavzuni ikki mijoz
     # yaratsa, ikkinchisi birinchisining sessiyasini ustiga yozib qo'ymasin.
     session_id = f"{req.topic[:40].replace(' ', '_')}_{uuid.uuid4().hex[:6]}"
@@ -258,18 +273,29 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         "citation_style": req.citation_style,
         "language": req.language,
         "ai_disclosure": req.ai_disclosure,
+        "meta": meta,
+        "checklist": checklist,
     }
 
     payload = {
         "session_id": session_id,
         "article_text": article_text,
-        "word_count": len(article_text.split()),
+        "word_count": word_count,
         "rewrite_attempts": rewrite_count,
         "sources": [
             {"title": s["title"], "year": s["year"], "citation_count": s.get("citation_count"), "url": s["url"]}
             for s in found_sources
         ],
         "review_summary": review,
+        # Paket qismlari haqida qisqa ma'lumot (matnning o'zi ZIP ichida)
+        "package": {
+            "structured_abstract": bool(meta.get("structured_abstract")),
+            "keywords": meta.get("keywords") or [],
+            "highlights": meta.get("highlights") or [],
+            "study_table_rows": len(meta.get("study_table") or []),
+            "cover_letter": bool(meta.get("cover_letter")),
+            "references": len(found_sources),
+        },
     }
     await _progress(job, 100, "Tayyor")
     return payload
@@ -377,4 +403,38 @@ async def download_docx(session_id: str):
         io.BytesIO(docx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{session_id}.docx"'},
+    )
+
+
+@app.get("/download/{session_id}/package")
+async def download_package(session_id: str):
+    """
+    To'liq qo'lyozma paketi (ZIP): hujjat, referens menejeri fayllari, bayonotlar,
+    cover letter, jadval va QO'LDA tekshirish ro'yxati.
+    """
+    data = SESSION_STORE.get(session_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Sessiya topilmadi. Avval maqola yaratilgan bo'lishi kerak.")
+
+    docx_bytes = document_builder.build_docx(
+        title=data["topic"],
+        article_text=data["article_text"],
+        sources=data["sources"],
+        citation_style=data["citation_style"],
+        ai_disclosure=data.get("ai_disclosure", False),
+    )
+
+    zip_bytes = manuscript_service.build_zip(
+        article_markdown=data["article_text"],
+        sources=data["sources"],
+        meta=data.get("meta") or {},
+        docx_bytes=docx_bytes,
+        checklist=data.get("checklist") or "",
+        word_count=len(data["article_text"].split()),
+    )
+
+    return StreamingResponse(
+        io.BytesIO(zip_bytes),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{session_id}_package.zip"'},
     )
