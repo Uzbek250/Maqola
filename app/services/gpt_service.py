@@ -199,6 +199,8 @@ async def write_article(
     citation_style: str = "vancouver",
     language: str = "en",
     outline: str | None = None,
+    search_query: str | None = None,
+    databases: list[str] | None = None,
 ) -> str:
     """
     2-bosqich: outline asosida to'liq ilmiy maqola yoziladi.
@@ -209,6 +211,19 @@ async def write_article(
     banned = _banned_phrases_block(language)
 
     outline_block = f"\n\nTAYYORLANGAN OUTLINE (shu rejaga qat'iy amal qil):\n{outline}" if outline else ""
+
+    # Metodologiya bo'limi HAQIQIY ma'lumotga tayanishi kerak — to'qilmasin
+    db_list = ", ".join(databases or ["PubMed", "Semantic Scholar"])
+    method_block = f"""
+MAJBURIY "Methods / Search Strategy" BO'LIMI:
+Maqolaga manbalar qanday topilganini yozuvchi qisqa bo'lim qo'sh (Kirishdan keyin).
+FAQAT quyidagi HAQIQIY ma'lumotlarni ishlat:
+- Ma'lumot bazalari: {db_list}
+- Qidiruv so'rovi (inglizcha kalit so'zlar): {search_query or topic}
+- Tanlangan manbalar soni: {len(sources)} ta
+- Saralash mezoni: mavzuga moslik, abstract to'liqligi va manbaning yangiligi
+Bu bo'limda aniq raqamlar (nechta topildi/tanlandi) faqat yuqoridagilar bo'lsin —
+o'zingdan qo'shimcha son, sana yoki baza O'YLAB TOPMA.""" if search_query else ""
 
     system_prompt = f"""Sen 15 yillik tajribaga ega ilmiy muallifsan, ko'plab jurnallarda nashr etilgan
 maqolalar yozgansan. Yozish uslubing tabiiy, ekspert darajasida va HECH QACHON AI matniga
@@ -222,7 +237,9 @@ QAT'IY QOIDALAR:
 3. Gaplar uzunligi va tuzilishi XILMA-XIL bo'lsin. Ketma-ket bir xil uzunlikdagi yoki bir xil
    grammatik tuzilishdagi gaplar yozish taqiqlanadi - bu AI matniga xos belgi.
 4. Paragraflar orasida tabiiy o'tish bo'lsin, mexanik ravishda emas.
-5. Maqola {MIN_WORDS}-{MAX_WORDS} so'z oralig'ida bo'lishi SHART. Bundan qisqa yoki uzun bo'lmasin.
+5. Maqola {MIN_WORDS}-{MAX_WORDS} so'z oralig'ida bo'lishi SHART; nishon ~{(MIN_WORDS+MAX_WORDS)//2} so'z.
+   Oraliqdan OSHIB KETSANGIZ matn rad etiladi va qayta ishlanadi - bo'lim sonini ko'paytirib
+   uzaytirmang, keraksiz takror yozmang. Yozib bo'lgach so'z sonini o'zingiz tekshiring.
 6. SARLAVHA HALOLLIGI: sarlavha maqolada HAQIQATDA bor narsani va'da qilsin. Agar manbalar
    biror mexanizmni bevosita ko'rsatmasa, sarlavhada "Potential", "Possible", "Hypothetical",
    "Implications" kabi ehtiyotkor so'zlarni ishlat - to'g'ridan-to'g'ri dalil borga o'xshab
@@ -240,21 +257,41 @@ QAT'IY QOIDALAR:
    (kichik namuna, qisqa kuzatuv, heterojenlik) alohida belgila.
 10. Maqolani BITTA markdown H1 sarlavha bilan boshla (# Sarlavha), keyin bo'limlar H2 (##) bilan
     bo'lsin. Sarlavha va butun matn {lang_name} tilida bo'lishi SHART - sarlavhani boshqa
-    tilda yozma."""
+    tilda yozma.
+11. DALIL KUCHIGA MOS BO'L: har bir asosiy da'vo qanday tadqiqotga tayanishini aniq yoz -
+    dizayn (RCT, kohort, meta-analiz, crossover) va ISHTIROKCHILAR SONI (n). Agar maqolaning
+    MARKAZIY xulosasi BITTA kichik tadqiqotga (n < 100) tayansa, buni XULOSADA ham,
+    SARLAVHADA ham ochiq tan ol - bitta kichik tadqiqotdan keng umumiy xulosa chiqarma.
+    "Bir nechta mustaqil tadqiqotlar tasdiqlaydi" deb yozma, agar aslida bitta bo'lsa.
+12. TAKRORLANISHDAN SAQLAN: ehtiyotkorlik iboralarini ("does not establish", "cannot determine",
+    "does not demonstrate", "remains unclear") bir xil shaklda qayta-qayta ishlatma. Har xil
+    ifoda ishlat ("the data are insufficient to conclude", "this finding should be read with
+    caution", "the evidence base is too narrow to generalise", "no such effect was observed",
+    "the trial was not powered to detect...") - va ularni faqat HAQIQATAN kerak joyda
+    ishlat, har paragrafga qo'shma.
+13. OXIRIDA IKKI BO'LIM QO'SH (jurnal talab qiladi):
+    "## Conflicts of Interest" - "The author declares no conflicts of interest." (agar
+    manbalarda boshqacha ma'lumot bo'lmasa shu standart jumla)
+    "## Funding" - "This work received no specific grant from any funding agency." (agar
+    manbalarda grant haqida ma'lumot bo'lmasa shu standart jumla)
+    Bu bo'limlarga o'zingdan grant raqami yoki tashkilot nomi O'YLAB TOPMA."""
 
     user_prompt = f"""Mavzu: {topic}
 
 MANBALAR:
 {sources_block}
 {outline_block}
+{method_block}
 
-Maqolani {lang_name} tilida, {citation_style} sitata uslubida yoz.
+Maqolani {lang_name} tilida, {citation_style} sitata usulida yoz.
 
 Tuzilma:
 1. Kirish - mavzuning dolzarbligi, maqsad
-2. Adabiyotlar sharhi - berilgan manbalarni tahlil qilib, taqqoslab
-3. Muhokama - manbalardagi natijalarni solishtirish, farq va o'xshashliklarni ko'rsatish
-4. Xulosa - asosiy topilmalar, cheklovlar, kelajakdagi tadqiqot yo'nalishlari
+2. Methods / Search Strategy - manbalar qanday topilgani (yuqoridagi MAJBURIY blokka qarang)
+3. Adabiyotlar sharhi - berilgan manbalarni tahlil qilib, taqqoslab
+4. Muhokama - manbalardagi natijalarni solishtirish, farq va o'xshashliklarni ko'rsatish
+5. Xulosa - asosiy topilmalar, cheklovlar, kelajakdagi tadqiqot yo'nalishlari
+6. Conflicts of Interest va Funding bo'limlari (oxirida)
 
 Matn ichida [1], [2] kabi raqamli izohlar bilan manbaga ishora qil (bu raqamlar yuqoridagi
 manbalar tartibiga mos keladi). Manbalar ro'yxatini o'zing yozma - buni tizim alohida qo'shadi.
@@ -310,13 +347,14 @@ async def adjust_length(
     language: str = "en",
     min_words: int = 1800,
     max_words: int = 2500,
+    max_attempts: int = 3,
 ) -> str:
     """
     Maqolani belgilangan so'z oralig'iga keltiradi.
 
-    Nega alohida funksiya: umumiy "qayta yozish" ko'rsatmasi uzunlikni ishonchli
-    tushirmaydi — model yana uzun yozadi. Aniq raqam va aniq vazifa berilganda
-    natija ancha barqaror bo'ladi.
+    Nega takroriy: bir marta so'rash yetarli emas — model ko'pincha talabni to'liq
+    bajarmaydi (kuzatildi: 2742 so'z). Shuning uchun bir necha marta urinamiz va
+    faqat YAXSHILANGAN natijani saqlaymiz; natija yaxshilanmasa to'xtaymiz.
     """
     current = _word_count(article_text)
     if min_words <= current <= max_words:
@@ -324,21 +362,30 @@ async def adjust_length(
 
     lang_name = LANGUAGE_NAMES.get(language, "ingliz")
     target = (min_words + max_words) // 2
-    action = "qisqartir" if current > max_words else "kengaytir"
 
-    system_prompt = (
-        f"Sen ilmiy matn muharririsan. Vazifang - matnni {action}ish, mazmunini "
-        f"o'zgartirmasdan. Yangi fakt, raqam yoki manba QO'SHMA."
-    )
-    user_prompt = f"""Quyidagi ilmiy maqola {current} so'zdan iborat. Uni {action}ib,
-aniq {target} so'zga keltir (ruxsat: {min_words}-{max_words}).
+    for attempt in range(1, max_attempts + 1):
+        over = current > max_words
+        action = "qisqartir" if over else "kengaytir"
+        delta = abs(current - target)
+
+        system_prompt = (
+            f"Sen ilmiy matn muharririsan. Vazifang - matnni {action}ish, mazmunini "
+            f"o'zgartirmasdan. Yangi fakt, raqam yoki manba QO'SHMA."
+        )
+        extra = (
+            f"\n- Matn {delta} so'zga {action}ilsin. Buning uchun eng kam muhim "
+            f"kichik bo'limlarni BIRLASHTIR yoki olib tashla; jumlalarni ichidan "
+            f"takrorlarni olib tashla. Bo'lim sonini kamaytirish mumkin."
+            if over else ""
+        )
+        user_prompt = f"""Quyidagi ilmiy maqola {current} so'zdan iborat ({attempt}-urinish).
+Uni {action}ib, ANIQ {target} so'zga keltir (ruxsat etilgan oraliq: {min_words}-{max_words}).
 
 QAT'IY TALABLAR:
 - Matn {lang_name} tilida qolsin (tarjima qilma).
-- Bo'limlar tuzilishi va markdown sarlavhalar (#, ##) saqlansin.
+- Markdown sarlavhalar (#, ##, ###) saqlansin.
 - [1], [2] kabi manba havolalari saqlansin va to'g'ri joyda qolsin.
-- Yangi fakt, raqam, statistika QO'SHMA. Faqat mavjudini ixchamlashtir.
-- Manba abstraktlarida yo'q hech narsa yozma.
+- Yangi fakt, raqam, statistika QO'SHMA. Faqat mavjudini ixchamlashtir.{extra}
 
 MANBALAR (faqat shularga tayan):
 {_format_sources_for_prompt(sources)}
@@ -346,9 +393,26 @@ MANBALAR (faqat shularga tayan):
 MAQOLA:
 {article_text}
 
-Endi {action}ilgan to'liq matnni yoz (boshqa izoh qo'shma)."""
+Endi {action}ilgan TO'LIQ matnni yoz (izoh, kirish so'zi qo'shma)."""
 
-    result = await _call_gpt(system_prompt, user_prompt, temperature=0.4, max_tokens=4000)
-    new_count = _word_count(result)
-    logger.info("Uzunlik moslandi: %s -> %s so'z (nishon %s)", current, new_count, target)
-    return result
+        try:
+            result = await _call_gpt(system_prompt, user_prompt, temperature=0.3, max_tokens=4000)
+        except Exception:
+            logger.exception("Uzunlikni moslashtirish urinishi muvaffaqiyatsiz (%s-urinish)", attempt)
+            break
+
+        new_count = _word_count(result)
+        logger.info("Uzunlik moslashuvi %s-urinish: %s -> %s so'z (nishon %s)",
+                    attempt, current, new_count, target)
+
+        # Faqat yaxshilangan natijani qabul qilamiz
+        if abs(new_count - target) < abs(current - target):
+            article_text, current = result, new_count
+        else:
+            logger.warning("Uzunlik yaxshilanmadi — oldingi matn saqlanadi")
+            break
+
+        if min_words <= current <= max_words:
+            break
+
+    return article_text

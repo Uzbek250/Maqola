@@ -114,11 +114,24 @@ async def generate_article(req: GenerateRequest):
                     "monitoring\")."),
         )
 
+    # DOI larni Crossref orqali tekshiramiz — soxta/noto'g'ri DOI maqolaga tushmasin.
+    # Hal qilinmagan DOI ro'yxatdan olib tashlanadi (manbaning o'zi qoladi).
+    try:
+        found_sources = await sources_service.validate_dois(found_sources)
+    except Exception:
+        logger.exception("DOI tekshiruvi ishlamadi — DOI lar tekshirilmasdan qoldiriladi")
+
+    # Metodologiya bo'limi haqiqiy ma'lumotga tayanishi uchun
+    databases = sorted({str(s.get("source")) for s in found_sources if s.get("source")})
+    logger.info("Manbalar: %s ta | bazalar: %s | so'rov: %r",
+                len(found_sources), databases, search_query)
+
     try:
         outline = await gpt_service.generate_outline(req.topic, found_sources, req.language)
 
         article_text = await gpt_service.write_article(
-            req.topic, found_sources, req.citation_style, req.language, outline=outline
+            req.topic, found_sources, req.citation_style, req.language, outline=outline,
+            search_query=search_query, databases=databases,
         )
     except Exception:
         logger.exception("Maqola yozishda xato (mavzu=%r)", req.topic)

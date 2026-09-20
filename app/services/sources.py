@@ -233,6 +233,48 @@ def _quality_score(source: dict) -> float:
     return score
 
 
+async def validate_dois(sources: list[dict], timeout: float = 20.0) -> list[dict]:
+    """
+    Har bir manbaning DOI sini Crossref orqali tekshiradi.
+
+    Nega kerak: AI yordamida yozilgan ilmiy ishlarda soxta/noto'g'ri DOI keng
+    uchraydigan xato. DOI hal qilinmasa, uni ro'yxatdan OLIB TASHLAMIZ — yozilmagan
+    DOI "noto'g'ri DOI" dan yaxshiroq (o'quvchi ishonib qolmaydi).
+
+    Manba o'zi saqlanadi (abstract va boshqa ma'lumot kerak) — faqat DOI tozalanadi.
+    """
+    import asyncio
+
+    targets = [s for s in sources if (s.get("doi") or "").strip()]
+    if not targets:
+        return sources
+
+    sem = asyncio.Semaphore(5)
+
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        async def check(s):
+            doi = s["doi"].strip()
+            async with sem:
+                try:
+                    r = await client.get(f"https://api.crossref.org/works/{doi}")
+                    if r.status_code == 200:
+                        s["doi_verified"] = True
+                        return
+                    logger.warning("DOI hal qilinmadi (%s): HTTP %s — DOI ro'yxatdan olib tashlandi",
+                                   doi, r.status_code)
+                except Exception as e:
+                    logger.warning("DOI tekshiruvida xato (%s): %s", doi, e)
+            s["doi"] = ""          # yaroqsiz DOI ni ko'rsatmaymiz
+            s["doi_verified"] = False
+
+        await asyncio.gather(*(check(s) for s in targets))
+
+    ok = sum(1 for s in sources if s.get("doi_verified"))
+    bad = sum(1 for s in sources if s.get("doi_verified") is False)
+    logger.info("DOI tekshiruvi: %s ta to'g'ri, %s ta olib tashlandi", ok, bad)
+    return sources
+
+
 async def find_sources(
     query: str,
     prefer_medical: bool = True,

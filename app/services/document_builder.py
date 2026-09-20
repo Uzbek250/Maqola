@@ -15,23 +15,42 @@ def _clean_inline(text: str) -> str:
     return text.replace("`", "").strip()
 
 
+def _clean_journal(journal: str) -> str:
+    """
+    PubMed jurnal nomini tozalaydi:
+      - "International journal of obesity (2005)" -> "International Journal of Obesity"
+        (qavsdagi yil nashr nomini ajratish uchun qo'shilgan, maqola yiliga aloqasi yo'q —
+         o'quvchi uni nashr yili deb o'qishi mumkin)
+      - nuqta/bo'shliq ortiqchaligini tozalaydi (title oxirida "." bo'lsa ".." bo'lib qoladi)
+    """
+    j = re.sub(r"\s*\(\s*(?:19|20)\d{2}\s*\)\s*$", "", (journal or "").strip())
+    return re.sub(r"\s+", " ", j).strip(" .")
+
+
+def _clean_sentence(s: str) -> str:
+    """Ortiqcha nuqta va bo'shliqlarni tozalaydi: 'Title.. 2024' -> 'Title. 2024'."""
+    s = re.sub(r"\s+", " ", (s or "").strip())
+    s = re.sub(r"\.\s*\.", ".", s)          # ".." -> "."
+    return s.strip()
+
+
 def _format_reference(source: dict, index: int, style: str = "vancouver") -> str:
     authors = ", ".join(source.get("authors", [])[:6]) or "Author unknown"
     year = source.get("year", "n.d.")
-    title = source.get("title", "")
-    journal = source.get("journal", "")
-    doi = source.get("doi", "")
+    title = _clean_sentence(source.get("title", ""))
+    journal = _clean_journal(source.get("journal", ""))
+    doi = (source.get("doi") or "").strip()
 
     if style == "vancouver":
         ref = f"{index}. {authors}. {title}. {journal}. {year}."
         if doi:
             ref += f" doi:{doi}"
-        return ref
+        return _clean_sentence(ref)
     else:  # APA-ga yaqin
         ref = f"{authors} ({year}). {title}. {journal}."
         if doi:
             ref += f" https://doi.org/{doi}"
-        return ref
+        return _clean_sentence(ref)
 
 
 def build_docx(title: str, article_text: str, sources: list[dict], citation_style: str = "vancouver") -> bytes:
