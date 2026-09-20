@@ -31,6 +31,11 @@
   .package-btn { background: #1a4fa0; margin-top: 10px; }
   .package-btn:hover { background: #163f80; }
   .package-note { font-size: 12.5px; color: #666; margin-top: 8px; line-height: 1.5; }
+  .hint { font-size: 12.5px; color: #666; margin-top: 6px; line-height: 1.5; }
+  .compliance-box { border-radius: 8px; padding: 12px 14px; margin-top: 12px; font-size: 13.5px; line-height: 1.7; }
+  .compliance-ok { background: #eaf7ee; border: 1px solid #a8ddb8; }
+  .compliance-warn { background: #fff8e6; border: 1px solid #f0d98c; }
+  .compliance-issue { margin-top: 6px; color: #444; }
   .details-box { margin-top: 14px; border-top: 1px solid #eee; padding-top: 10px; }
   .details-box summary { cursor: pointer; font-size: 14px; color: #444; font-weight: 600; padding: 6px 0; }
   .details-box[open] summary { margin-bottom: 8px; }
@@ -67,6 +72,10 @@
     <option value="uz">O'zbek tilida</option>
     <option value="ru">Rus tilida</option>
   </select>
+  <select id="journal">
+    <option value="generic">Jurnal tanlanmagan (umumiy talablar)</option>
+  </select>
+  <div class="hint" id="journal-hint">Jurnal tanlansa — maqola o'sha jurnal talabiga mos yoziladi va tekshiriladi.</div>
   <button onclick="generateArticle()" id="gen-btn">Maqola yaratish</button>
   <div id="status"></div>
   <div class="progress-wrap" id="progress-wrap">
@@ -82,6 +91,7 @@
   <h2>✅ Maqola tayyor</h2>
   <div class="result-title" id="result-title"></div>
   <div class="result-meta" id="result-meta"></div>
+  <div id="compliance-output"></div>
   <button class="download-btn" onclick="downloadDocx()">⬇️ Word (.docx) yuklab olish</button>
   <button class="download-btn package-btn" onclick="downloadPackage()">📦 To'liq qo'lyozma paketi (ZIP)</button>
   <div class="package-note">Paket ichida: hujjat, referenslar (Zotero/EndNote), bayonotlar, cover letter, ma'lumot jadvali va <strong>qo'lda tekshirish ro'yxati</strong>.</div>
@@ -191,6 +201,33 @@
       <strong>Xulosa:</strong> ${escapeHtml(review.umumiy_baho || "—")}
     `;
 
+    // To'liq matn statistikasi (Bosqich 3) — qancha manba to'liq o'qildi
+    const ft = data.full_text;
+    if (ft) {
+      document.getElementById("result-meta").insertAdjacentHTML("beforeend",
+        `<br><strong>To'liq matn:</strong> ${ft.full_text_count} manba to'liq o'qildi, ` +
+        `${ft.abstract_only_count} tasi faqat abstract`);
+    }
+
+    // Muvofiqlik hisoboti (Bosqich 2)
+    const comp = data.compliance;
+    const cbox = document.getElementById("compliance-output");
+    if (comp) {
+      const s = comp.summary || {};
+      const cls = comp.passed ? "compliance-ok" : "compliance-warn";
+      const head = comp.passed
+        ? `✅ Jurnal talablariga mos: ${escapeHtml(comp.journal)}`
+        : `⚠️ ${escapeHtml(comp.journal)} talablariga to'liq mos emas`;
+      const issues = (comp.issues || [])
+        .map(i => `<div class="compliance-issue">• ${escapeHtml(i)}</div>`).join("");
+      cbox.innerHTML =
+        `<div class="compliance-box ${cls}"><strong>${head}</strong>` +
+        `<div class="compliance-issue">✅ ${s.ok || 0} &nbsp; ⚠️ ${s.warn || 0} &nbsp; ❌ ${s.fail || 0}</div>` +
+        `${issues}</div>`;
+    } else {
+      cbox.innerHTML = "";
+    }
+
     document.getElementById("src-count").textContent = data.sources.length;
     document.getElementById("sources-output").innerHTML =
       data.sources.map(s => `• ${escapeHtml(s.title)} (${s.year})`).join("<br>");
@@ -226,7 +263,8 @@
           topic,
           is_medical: document.getElementById("is-medical").value === "true",
           citation_style: document.getElementById("citation-style").value,
-          language: document.getElementById("language").value
+          language: document.getElementById("language").value,
+          journal: document.getElementById("journal").value
         })
       });
 
@@ -279,6 +317,29 @@
     if (!currentSessionId) return;
     window.open(`${API_BASE}/download/${currentSessionId}/package`, "_blank");
   }
+
+  // Jurnal profillarini yuklaymiz (Bosqich 2). Xato bo'lsa — umumiy profil qoladi.
+  async function loadJournals() {
+    try {
+      const r = await fetch(`${API_BASE}/journals`);
+      if (!r.ok) return;
+      const d = await r.json();
+      const sel = document.getElementById("journal");
+      if (!d.journals || !d.journals.length) return;
+      sel.innerHTML = "";
+      d.journals.forEach(j => {
+        const o = document.createElement("option");
+        o.value = j.key;
+        o.textContent = j.word_limit
+          ? `${j.name} — limit ${j.word_limit} so'z`
+          : j.name;
+        sel.appendChild(o);
+      });
+    } catch (e) {
+      // Jurnal ro'yxati olinmasa ham ishlashda davom etamiz
+    }
+  }
+  loadJournals();
 </script>
 
 </body>
