@@ -284,8 +284,15 @@
         await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 
         const poll = await fetch(`${API_BASE}/jobs/${job_id}`);
+        // 404 = server qayta ishga tushgan (deploy) va xotiradagi vazifa yo'qolgan.
+        // Bu holatda aniq sabab aytamiz — "Noma'lum xato" deyish mijozni chalg'itadi.
+        if (poll.status === 404) {
+          throw new Error("Server yangilandi va vazifa yo'qoldi. Iltimos, qaytadan urinib ko'ring " +
+                          "(ish boshlangan bo'lsa, u saqlanmagan).");
+        }
         if (!poll.ok) throw new Error(`Holatni olishda xato (${poll.status})`);
         const job = await poll.json();
+        if (!job.status) throw new Error("Serverdan kutilmagan javob keldi. Qaytadan urinib ko'ring.");
 
         setProgress(job.progress || 0, job.step);
 
