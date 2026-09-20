@@ -117,7 +117,46 @@ progress chizig'ini ko'rsatadi.
 Xotira cheklovi: eng oxirgi 100 ta vazifa saqlanadi, tugaganlari 1 soatdan keyin
 o'chiriladi (`MAX_JOBS`, `JOB_TTL_SECONDS` — `app/main.py`).
 
-## 8. Keyingi qadamlar (agar sifat yetarli bo'lmasa)
+## 8. To'liq qo'lyozma paketi (4-versiya)
+
+Ilova endi zanjirning **oxirini ham** yopadi: bitta ZIP ichida topshirishga kerak bo'lgan
+hamma fayl beriladi. Batafsil reja: `ROADMAP.md`.
+
+```bash
+curl -o paket.zip https://SIZNING-URL.onrender.com/download/{session_id}/package
+```
+
+| Fayl | Nima uchun |
+|---|---|
+| `manuscript.docx` | Asosiy qo'lyozma (jurnalga yuboriladi) |
+| `manuscript.md` | Matnning mashina o'qiydigan nusxasi |
+| `references.bib` | Zotero/EndNote (jurnal uslubida formatlash uchun) |
+| `references.ris` | EndNote/Mendeley import |
+| `statements.md` | Title page, funding, COI, data availability, hissa, etika |
+| `cover_letter.md` | Cover letter (`[TARGET JOURNAL]` almashtiriladi) |
+| `front_matter.json` | Structured abstract, kalit so'zlar, highlights |
+| `study_table.json` | Ma'lumot ajratish jadvali (dizayn, n, populyatsiya, natija) |
+| `CHECKLIST.md` | **Qo'lda tekshirish ro'yxati — majburiy** |
+| `README.txt` | Fayllar izohi |
+
+### Ma'lumot to'qishni taqiqlash qoidasi
+
+LLM **ko'rmagan raqamni yozmaydi**. Jadvaldagi `n` manba abstraktida ko'rsatilmagan bo'lsa,
+`NR` (not reported) qo'yiladi. Sinovda tasdiqlangan: Kramer RCT uchun `n=39 participants`
+(haqiqiy raqam), sharh maqolalari uchun `n=NR`.
+
+### Referenslar kod tomonidan yasaladi
+
+`references.bib` va `references.ris` **kod** tomonidan manba metadatasidan yasaladi, LLM
+tomonidan emas — shunda mavjud bo'lmagan ishlar to'qilmaydi. DOI'lar Crossref'da tekshiriladi.
+
+### AI deklaratsiyasi
+
+`ai_disclosure` parametri orqali boshqariladi (**standart: `false`**). Yoqilsa, Word faylga
+`Acknowledgment: Use of Artificial Intelligence` bo'limi qo'shiladi (ICMJE/COPE talab qilgan
+formatda). Nishon jurnal AI siyosatini o'zingiz tekshirib, kerak bo'lsa yoqing.
+
+## 9. Keyingi qadamlar (agar sifat yetarli bo'lmasa)
 
 - GPT-4o o'rniga `o1` yoki `gpt-4-turbo` sinab ko'ring (sifat farqi bo'lishi mumkin, narx boshqacha)
 - `rewrite_article` funksiyasini bir necha marta chaqirish (hozir faqat 1 marta qayta yozadi)
