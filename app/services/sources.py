@@ -9,6 +9,7 @@ Sifat siyosati:
 - Abstract'i yo'q yoki juda qisqa manbalar chiqarib tashlanadi (AI'ga foyda bermaydi)
 """
 import logging
+import re
 
 import httpx
 import math
@@ -149,6 +150,12 @@ def _parse_pubmed_xml(xml_text: str) -> list[dict]:
                 if el_id.get("IdType") == "doi":
                     doi = _text(el_id)
                     break
+            # Zaxira joy: ba'zi yozuvlarda DOI faqat ELocationID da bo'ladi
+            if not doi:
+                for el in article.findall("MedlineCitation/Article/ELocationID"):
+                    if el.get("EIdType") == "doi":
+                        doi = _text(el)
+                        break
 
             if title and len(abstract) >= MIN_ABSTRACT_LENGTH:
                 results.append({
@@ -233,15 +240,96 @@ def _quality_score(source: dict) -> float:
     return score
 
 
-async def validate_dois(sources: list[dict], timeout: float = 20.0) -> list[dict]:
+def _norm_text(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+async def backfill_missing_dois(sources: list[dict], timeout: float = 25.0) -> list[dict]:
+    """
+    DOI si yo'q manbalar uchun Crossref'dan SARLAVHA bo'yicha DOI topadi.
+
+    Nega: manba bazalari (ayniqsa Semantic Scholar) ba'zi maqolalar uchun DOI
+    bermaydi, natijada ro'yxatda bir manbada DOI bor, boshqasida yo'q — taqrizchi
+    buni "tekshirilmagan manba" deb hisoblashi mumkin. Sarlavha bo'yicha topib,
+    ro'yxatni bir xil ko'rinishga keltiramiz.
+    """
+    import asyncio
+
+    targets = [s for s in sources
+               if not (s.get("doi") or "").strip() and len((s.get("title") or "")) > 20]
+    if not targets:
+        return sources
+
+    sem = asyncio.Semaphore(3)
+    # Preprint serverlari — nashr etilgan maqola emas, ularni QABUL QILMAYMIZ.
+    # (Aks holda sarlavha bo'yicha qidiruv jurnal DOI si o'rniga preprint DOI sini
+    #  topib qo'yadi — bu maqolaning boshqa versiyasiga ishora qiladi.)
+    PREPRINT_TYPES = {"posted-content"}
+    PREPRINT_PREFIXES = ("10.20944/", "10.21203/", "10.1101/", "10.31219/", "10.22541/")
+
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        async def find(s):
+            async with sem:
+                items = []
+                for attempt in (1, 2):
+                    try:
+                        r = await client.get(
+                            "https://api.crossref.org/works",
+                            params={"query.bibliographic": s["title"], "rows": 5,
+                                    "select": "DOI,title,type",
+                                    "mailto": NCBI_EMAIL},   # Crossref "polite pool"
+                        )
+                    except Exception as e:
+                        logger.warning("DOI qidiruvida xato (%s): %s", s["title"][:40], e)
+                        return
+                    if r.status_code == 200:
+                        items = r.json().get("message", {}).get("items", [])
+                        break
+                    logger.warning("Crossref qidiruvi HTTP %s (%s)", r.status_code, s["title"][:40])
+                    if attempt == 1:
+                        await asyncio.sleep(2.0)
+                if not items:
+                    return
+
+                target = _norm_text(s["title"])[:60]
+                for it in items:
+                    t = it.get("title") or [""]
+                    t = t[0] if t else ""
+                    doi = (it.get("DOI") or "").strip()
+                    if not doi:
+                        continue
+                    # Preprint va nomaqbul turlarni o'tkazib yuboramiz
+                    if (it.get("type") or "").lower() in PREPRINT_TYPES:
+                        logger.info("Preprint o'tkazib yuborildi (%s): %s", doi, t[:40])
+                        continue
+                    if doi.lower().startswith(PREPRINT_PREFIXES):
+                        logger.info("Preprint serveri o'tkazib yuborildi: %s", doi)
+                        continue
+                    nt = _norm_text(t)
+                    # Faqat sarlavhaning boshi aniq mos kelsa qabul qilamiz
+                    if nt[:60] == target and len(nt) > 20:
+                        s["doi"] = doi
+                        s["doi_source"] = "crossref-title-lookup"
+                        logger.info("DOI topildi (sarlavha bo'yicha, %s): %s",
+                                    s["title"][:40], doi)
+                        return
+                logger.info("DOI topilmadi (sarlavha bo'yicha): %s", s["title"][:50])
+
+        await asyncio.gather(*(find(s) for s in targets))
+
+    found = sum(1 for s in sources if s.get("doi_source") == "crossref-title-lookup")
+    logger.info("DOI to'ldirish: %s ta manba uchun DOI topildi", found)
+    return sources
+
+
+async def validate_dois(sources: list[dict], timeout: float = 25.0) -> list[dict]:
     """
     Har bir manbaning DOI sini Crossref orqali tekshiradi.
 
-    Nega kerak: AI yordamida yozilgan ilmiy ishlarda soxta/noto'g'ri DOI keng
-    uchraydigan xato. DOI hal qilinmasa, uni ro'yxatdan OLIB TASHLAMIZ — yozilmagan
-    DOI "noto'g'ri DOI" dan yaxshiroq (o'quvchi ishonib qolmaydi).
-
-    Manba o'zi saqlanadi (abstract va boshqa ma'lumot kerak) — faqat DOI tozalanadi.
+    MUHIM: DOI FAQAT aniq "topilmadi" (404) javobida o'chiriladi. Vaqtinchalik
+    xatolar (429 limit, 5xx, tarmoq uzilishi, timeout) DOI ni O'CHIRMAYDI —
+    aks holda bitta vaqtinchalik limit butun ro'yxatdagi haqiqiy DOI larni
+    yo'q qiladi (aynan shunday bo'lgan: bir manbaning DOI si yo'qolgan edi).
     """
     import asyncio
 
@@ -249,29 +337,47 @@ async def validate_dois(sources: list[dict], timeout: float = 20.0) -> list[dict
     if not targets:
         return sources
 
-    sem = asyncio.Semaphore(5)
+    # Kichik parallellik + kichik pauza: Crossref limitiga urilmaslik uchun
+    sem = asyncio.Semaphore(3)
 
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         async def check(s):
             doi = s["doi"].strip()
             async with sem:
-                try:
-                    r = await client.get(f"https://api.crossref.org/works/{doi}")
+                for attempt in (1, 2):
+                    try:
+                        r = await client.get(f"https://api.crossref.org/works/{doi}",
+                                             params={"mailto": NCBI_EMAIL})  # polite pool
+                    except Exception as e:
+                        logger.warning("DOI tekshiruvida tarmoq xatosi (%s): %s — DOI saqlanadi", doi, e)
+                        s["doi_verified"] = None      # noaniq: DOI ni o'chirmaymiz
+                        return
+
                     if r.status_code == 200:
                         s["doi_verified"] = True
                         return
-                    logger.warning("DOI hal qilinmadi (%s): HTTP %s — DOI ro'yxatdan olib tashlandi",
-                                   doi, r.status_code)
-                except Exception as e:
-                    logger.warning("DOI tekshiruvida xato (%s): %s", doi, e)
-            s["doi"] = ""          # yaroqsiz DOI ni ko'rsatmaymiz
-            s["doi_verified"] = False
+                    if r.status_code == 404:
+                        logger.warning("DOI mavjud emas (%s): 404 — ro'yxatdan olib tashlandi", doi)
+                        s["doi"] = ""
+                        s["doi_verified"] = False
+                        return
+                    # 429 / 5xx — vaqtinchalik, bir marta kutib qayta urinamiz
+                    logger.warning("DOI tekshiruvi vaqtincha xato (%s): HTTP %s", doi, r.status_code)
+                    if attempt == 1:
+                        await asyncio.sleep(2.0)
+                        continue
+
+            # Ikki urinishdan keyin ham noaniq — DOI ni SAQLAYMIZ (ehtiyotkorlik)
+            logger.warning("DOI tasdiqlanmadi, lekin saqlanadi (%s)", doi)
+            s["doi_verified"] = None
 
         await asyncio.gather(*(check(s) for s in targets))
 
-    ok = sum(1 for s in sources if s.get("doi_verified"))
-    bad = sum(1 for s in sources if s.get("doi_verified") is False)
-    logger.info("DOI tekshiruvi: %s ta to'g'ri, %s ta olib tashlandi", ok, bad)
+    ok = sum(1 for s in sources if s.get("doi_verified") is True)
+    gone = sum(1 for s in sources if s.get("doi_verified") is False)
+    unknown = sum(1 for s in sources if s.get("doi_verified") is None)
+    logger.info("DOI tekshiruvi: %s tasdiqlandi, %s mavjud emas (olib tashlandi), "
+                "%s noaniq (saqlandi)", ok, gone, unknown)
     return sources
 
 

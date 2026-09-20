@@ -114,9 +114,10 @@ async def generate_article(req: GenerateRequest):
                     "monitoring\")."),
         )
 
-    # DOI larni Crossref orqali tekshiramiz — soxta/noto'g'ri DOI maqolaga tushmasin.
-    # Hal qilinmagan DOI ro'yxatdan olib tashlanadi (manbaning o'zi qoladi).
+    # DOI si yo'q manbalar uchun sarlavha bo'yicha DOI topamiz (ro'yxat bir xil
+    # ko'rinishda bo'lsin), keyin mavjudlarni Crossref orqali tekshiramiz.
     try:
+        found_sources = await sources_service.backfill_missing_dois(found_sources)
         found_sources = await sources_service.validate_dois(found_sources)
     except Exception:
         logger.exception("DOI tekshiruvi ishlamadi — DOI lar tekshirilmasdan qoldiriladi")
