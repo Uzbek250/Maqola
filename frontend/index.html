@@ -330,9 +330,11 @@
       d.journals.forEach(j => {
         const o = document.createElement("option");
         o.value = j.key;
-        o.textContent = j.word_limit
-          ? `${j.name} — limit ${j.word_limit} so'z`
-          : j.name;
+        let label = j.name;
+        if (j.word_limit) label += ` — limit ${j.word_limit} so'z`;
+        else if (j.reference_style) label += " — limitsiz";
+        if (j.accepts_reviews === false) label += " ⛔ sharh qabul qilmaydi";
+        o.textContent = label;
         sel.appendChild(o);
       });
     } catch (e) {

@@ -130,7 +130,9 @@ def check_compliance(article_text: str, sources: list[dict], meta: dict,
             add("abstract", "Abstract", OK, f"Structured: {', '.join(have)}")
     elif ab_type == "unstructured":
         if abstract:
-            add("abstract", "Abstract", OK, "Structured abstract yasalgan (jurnal oddiy abstract so'raydi)")
+            add("abstract", "Abstract", OK,
+                "Abstract yasalgan (jurnal oddiy, tuzilmasiz abstract so'raydi — kichik "
+                "sarlavhalar olib tashlanishi mumkin)")
         else:
             add("abstract", "Abstract", FAIL, "Abstract yasalmagan")
     else:
@@ -148,6 +150,17 @@ def check_compliance(article_text: str, sources: list[dict], meta: dict,
                 f"{ab_words} so'z — limit {ab_limit} dan {ab_words - ab_limit} so'z ko'p")
     else:
         add("abstract_words", "Abstract so'z soni", NA, "Limit aniqlanmagan")
+
+    # ---- Abstract belgi limiti (ba'zi jurnallar so'z emas, BELGI bilan cheklaydi)
+    ab_chars = journal.get("abstract_char_limit")
+    if ab_chars and abstract:
+        n_chars = len(" ".join(str(v) for v in abstract.values()))
+        if n_chars <= ab_chars:
+            add("abstract_chars", "Abstract belgi soni", OK,
+                f"{n_chars} belgi (limit {ab_chars})")
+        else:
+            add("abstract_chars", "Abstract belgi soni", FAIL,
+                f"{n_chars} belgi — limit {ab_chars} dan {n_chars - ab_chars} belgi ko'p")
 
     # ---- Kalit so'zlar
     kws = meta.get("keywords") or []
@@ -177,6 +190,18 @@ def check_compliance(article_text: str, sources: list[dict], meta: dict,
     # ---- AI siyosati (faqat eslatma — qaror muallifniki)
     if journal.get("ai_policy"):
         add("ai_policy", "Jurnalning AI siyosati", WARN, journal["ai_policy"])
+
+    # ---- Jurnal talab qilgan tuzilma (ma'lumot uchun — mijoz moslashtirishi kerak)
+    if journal.get("structure_note"):
+        add("structure", "Jurnal talab qilgan to'liq tuzilma", NA,
+            f"{journal['structure_note']} — topshirishdan oldin moslashtiring.")
+
+    # ---- Nashr narxi (APC) — byudjet rejalashtirish uchun
+    apc = journal.get("apc_usd")
+    if apc:
+        add("apc", "Nashr narxi (APC)", NA, f"${apc:,} (ochiq kirish uchun to'lanadi)")
+    elif journal.get("apc_note"):
+        add("apc", "Nashr narxi (APC)", NA, journal["apc_note"])
 
     summary = {"ok": 0, "warn": 0, "fail": 0, "na": 0}
     for c in checks:
