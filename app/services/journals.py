@@ -16,6 +16,7 @@ Qiymat `None` bo'lsa — tekshiruv o'sha band bo'yicha o'tkazib yuboriladi
 GENERIC: dict = {
     "key": "generic",
     "name": "Umumiy (aniq jurnal tanlanmagan)",
+    "field": "medical",                    # medical | general | law | pedagogy | ...
     "word_limit_main_text": None,
     "abstract_type": None,
     "abstract_sections": [],
@@ -29,6 +30,13 @@ GENERIC: dict = {
     "apc_usd": None,
     "ai_policy": None,
     "source_url": None,
+    # Indekslash va IF haqiqiyligi — mijozni himoya qiluvchi maydonlar.
+    # `indexing=None`  -> tekshirilmagan (tekshiruv o'tkazib yuboriladi)
+    # `indexing=[]`    -> tekshirildi va hech qanday rasmiy indeksda YO'Q (❌)
+    "indexing": None,
+    "claimed_if": None,
+    "if_verified": None,                   # True (JCR/Scopus) | False (faqat jurnal o'zi) | None
+    "predatory_signals": [],
     "notes": "Standart profil: faqat umumiy tuzilma tekshiriladi.",
 }
 
@@ -263,20 +271,29 @@ _reg({
 def list_profiles() -> list[dict]:
     """Mavjud profillar ro'yxati (frontend/API uchun qisqa ko'rinish)."""
     out = [{"key": GENERIC["key"], "name": GENERIC["name"],
-            "word_limit": None, "apc_usd": None, "accepts_reviews": None}]
+            "word_limit": None, "apc_usd": None, "accepts_reviews": None,
+            "field": GENERIC.get("field"), "indexing": None}]
     for p in JOURNALS.values():
+        idx = p.get("indexing")
         out.append({
             "key": p["key"],
             "name": p["name"],
+            "field": p.get("field"),
             "word_limit": p.get("word_limit_main_text"),
             "abstract_type": p.get("abstract_type"),
             "reference_style": p.get("reference_style"),
             "apc_usd": p.get("apc_usd"),
             "apc_note": p.get("apc_note"),
             "accepts_reviews": p.get("accepts_reviews"),
+            # indexing_status: "verified" (ro'yxatda bor) | "none" (tekshirildi, yo'q)
+            #                  | None (tekshirilmagan)
+            "indexing": idx,
+            "indexing_status": (None if idx is None else ("verified" if idx else "none")),
+            "if_verified": p.get("if_verified"),
+            "claimed_if": p.get("claimed_if"),
             "source_url": p.get("source_url"),
         })
-    return sorted(out, key=lambda x: x["name"])
+    return sorted(out, key=lambda x: (x.get("field") or "", x["name"]))
 
 
 def get_profile(key: str | None) -> dict:

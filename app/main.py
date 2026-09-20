@@ -154,8 +154,19 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
 
     await _progress(job, 15, "Ilmiy manbalar qidirilmoqda")
 
+    # Jurnal sohasi tibbiy bo'lmasa PubMed foydasiz — u faqat tibbiyotni indekslaydi.
+    # Jurnal tanlangan bo'lsa sohani avtomatik moslashtiramiz (huquq, pedagogika va h.k.
+    # uchun Semantic Scholar ishlatiladi).
+    _prof_for_search = journals_service.get_profile(req.journal)
+    prefer_medical = req.is_medical
+    if _prof_for_search.get("key") != "generic":
+        _field = _prof_for_search.get("field")
+        if _field and _field != "medical":
+            prefer_medical = False
+            logger.info("Jurnal sohasi '%s' — PubMed o'rniga Semantic Scholar ishlatiladi", _field)
+
     found_sources = await sources_service.find_sources(
-        search_query, prefer_medical=req.is_medical, max_results=10
+        search_query, prefer_medical=prefer_medical, max_results=10
     )
 
     # Topilmasa — yanada kengroq (kamroq kalit so'zli) so'rov bilan bir marta qayta urinamiz
@@ -164,7 +175,7 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         if wider and wider != search_query:
             logger.info("Manba topilmadi — kengroq so'rov sinaladi: %r", wider)
             found_sources = await sources_service.find_sources(
-                wider, prefer_medical=req.is_medical, max_results=10
+                wider, prefer_medical=prefer_medical, max_results=10
             )
 
     if not found_sources:

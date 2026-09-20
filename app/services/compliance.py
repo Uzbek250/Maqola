@@ -203,6 +203,33 @@ def check_compliance(article_text: str, sources: list[dict], meta: dict,
     elif journal.get("apc_note"):
         add("apc", "Nashr narxi (APC)", NA, journal["apc_note"])
 
+    # ---- Rasmiy indekslarda bormi (mijozni himoya qiladi)
+    # indexing=None -> tekshirilmagan (o'tkazib yuboriladi)
+    # indexing=[]   -> tekshirildi, hech qaerda yo'q (FAIL)
+    idx = journal.get("indexing")
+    if idx is not None:
+        if idx:
+            add("indexing", "Rasmiy indekslarda", OK, f"Tasdiqlangan: {', '.join(idx)}")
+        else:
+            add("indexing", "Rasmiy indekslarda", FAIL,
+                "Tekshirildi: bu jurnal Scopus, Web of Science (JCR), DOAJ yoki PubMed "
+                "kabi tan olingan indekslarning HECH BIRIDA topilmadi. Nashr etishdan "
+                "oldin o'zingiz tekshiring — bunday nashr ilmiy hisobga olinmasligi mumkin.")
+
+    # ---- Impact factor haqiqiyligi (raqam jurnal o'zi e'lon qilgan bo'lishi mumkin)
+    if journal.get("if_verified") is False and journal.get("claimed_if"):
+        add("impact_factor", "Impact factor haqiqiyligi", FAIL,
+            f"Ko'rsatilgan IF {journal['claimed_if']} Clarivate JCR yoki Scopus'da "
+            f"TASDIQLANMADI — bu jurnal o'zi e'lon qilgan raqam bo'lishi mumkin.")
+    elif journal.get("if_verified") is True and journal.get("claimed_if"):
+        add("impact_factor", "Impact factor haqiqiyligi", OK,
+            f"IF {journal['claimed_if']} JCR/Scopus'da tasdiqlangan")
+
+    # ---- Ehtiyot bo'lish belgilari (predatory publishing)
+    if journal.get("predatory_signals"):
+        add("predatory", "Ehtiyot bo'lish belgilari", WARN,
+            "; ".join(journal["predatory_signals"]))
+
     summary = {"ok": 0, "warn": 0, "fail": 0, "na": 0}
     for c in checks:
         summary[c["status"]] += 1
