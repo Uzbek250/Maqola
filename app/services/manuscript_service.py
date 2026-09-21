@@ -289,7 +289,8 @@ Ilova ishning ~90% ini qildi. Quyidagilar **majburiy** — muallif javobgar.
 
 def build_zip(article_markdown: str, sources: list[dict], meta: dict,
               docx_bytes: bytes, checklist: str, word_count: int,
-              compliance_markdown: str = "") -> bytes:
+              compliance_markdown: str = "", trilingual: dict | None = None,
+              udk: str = "") -> bytes:
     """Topshirishga kerak bo'lgan hamma faylni bitta ZIP'ga yig'adi."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -301,6 +302,27 @@ def build_zip(article_markdown: str, sources: list[dict], meta: dict,
         z.writestr("cover_letter.md", meta.get("cover_letter") or "[cover letter not generated]")
         if compliance_markdown:
             z.writestr("COMPLIANCE.md", compliance_markdown)
+
+        # Uch tilli qism (o'zbek jurnali shabloni) — alohida fayl sifatida ham
+        if trilingual:
+            tri_lines = [f"# Uch tilli qism (uz / ru / en)", ""]
+            if udk:
+                tri_lines += [f"**UDK:** {udk}", ""]
+            labels = {"uz": "O'zbekcha", "ru": "Русский", "en": "English"}
+            for lang in ("uz", "ru", "en"):
+                t = (trilingual.get("title") or {}).get(lang) or ""
+                a = (trilingual.get("abstract") or {}).get(lang) or ""
+                k = (trilingual.get("keywords") or {}).get(lang) or []
+                if not (t or a):
+                    continue
+                tri_lines += [f"## {labels[lang]}", "", f"**Sarlavha:** {t}", ""]
+                if a:
+                    tri_lines += [a, ""]
+                if k:
+                    tri_lines += [f"**Kalit so'zlar:** {', '.join(str(x) for x in k)}", ""]
+            z.writestr("front_matter_3til.md", "\n".join(tri_lines))
+            z.writestr("front_matter_3til.json",
+                       json.dumps({"udk": udk, **trilingual}, ensure_ascii=False, indent=2))
 
         front = {
             "structured_abstract": meta.get("structured_abstract"),

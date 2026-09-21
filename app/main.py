@@ -18,6 +18,7 @@ from app.services import fulltext as fulltext_service
 from app.services import journals as journals_service
 from app.services import compliance as compliance_service
 from app.services import store as store_service
+from app.services import uz_template
 
 # Xatolarning haqiqiy sababi Render loglarida ko'rinishi uchun
 logging.basicConfig(
@@ -82,6 +83,9 @@ MIN_WORDS = 1800
 MAX_WORDS = 2500
 MAX_REWRITE_ATTEMPTS = 2  # majburiy qayta yozish - 2 martagacha
 
+# O'zbek jurnali shablonidagi bo'lim nomlari (muallif hujjatlaridagi tartibda)
+UZ_SECTIONS = ["KIRISH", "TADQIQOT METODOLOGIYASI", "NATIJALAR VA MUHOKAMA", "XULOSA"]
+
 
 class TopicRequest(BaseModel):
     direction: str
@@ -100,6 +104,19 @@ class GenerateRequest(BaseModel):
     # Maqsadli jurnal kaliti (Bosqich 2). Ro'yxat: GET /journals
     # Berilsa — maqola o'sha jurnal talabiga mos yoziladi va tekshiriladi.
     journal: str = "generic"
+
+    # Qo'lyozma shabloni:
+    #   "standard"   — oddiy ilmiy maqola (kirish/metod/muhokama/xulosa)
+    #   "uz_journal" — o'zbek jurnali formati: UDK + 3 tilli sarlavha,
+    #                  annotatsiya va kalit so'zlar + o'zbekcha bo'lim nomlari
+    template: str = "standard"
+
+    # Muallif bloki (ixtiyoriy) — shablonda tayyor joyga qo'yiladi
+    author_name: str = ""
+    author_affiliation: str = ""
+    author_city: str = ""
+    author_email: str = ""
+    author_orcid: str = ""
 
 
 @app.get("/")
@@ -165,6 +182,14 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
             prefer_medical = False
             logger.info("Jurnal sohasi '%s' — PubMed o'rniga Semantic Scholar ishlatiladi", _field)
 
+    # Shablon: o'zbek jurnali formati tanlansa bo'lim nomlari o'zbekcha bo'ladi
+    # (muallif hujjatlaridagi tartib: KIRISH / METODOLOGIYA / NATIJALAR / XULOSA).
+    profile = dict(_prof_for_search)
+    if req.template == "uz_journal":
+        profile["required_sections"] = UZ_SECTIONS
+    logger.info("Shablon: %s | jurnal: %s | bo'limlar: %s", req.template,
+                profile.get("name"), profile.get("required_sections"))
+
     found_sources = await sources_service.find_sources(
         search_query, prefer_medical=prefer_medical, max_results=10
     )
@@ -223,7 +248,7 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         article_text = await gpt_service.write_article(
             req.topic, found_sources, req.citation_style, req.language, outline=outline,
             search_query=search_query, databases=databases,
-            journal_profile=journals_service.get_profile(req.journal),
+            journal_profile=profile,
         )
     except Exception:
         logger.exception("Maqola yozishda xato (mavzu=%r)", req.topic)
@@ -299,11 +324,25 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
     except Exception:
         logger.exception("Paket metama'lumotini yasab bo'lmadi — maqola baribir qaytariladi")
 
+    # O'zbek jurnali shabloni: UDK + uch tilli sarlavha / annotatsiya / kalit so'zlar
+    tri: dict = {}
+    udk_info: dict = {}
+    if req.template == "uz_journal":
+        await _progress(job, 95, "Uch tilli qism yasalmoqda (uz/ru/en)")
+        try:
+            tri = await uz_template.build_trilingual(req.topic, article_text, req.language)
+            udk_info = await uz_template.build_udk(req.topic, article_text)
+            logger.info("Uch tilli qism: sarlavha=%s | annotatsiya so'z=%s | UDK=%s",
+                        list((tri.get("title") or {}).keys()),
+                        uz_template.word_counts(tri), udk_info.get("udk"))
+        except Exception:
+            logger.exception("Uch tilli qismni yasab bo'lmadi — faqat asosiy matn beriladi")
+
     word_count = len(article_text.split())
     checklist = manuscript_service.build_checklist(word_count, len(found_sources), meta)
 
     # Muvofiqlik tekshiruvi (Bosqich 2): maqola nishon jurnal talabiga mos keladimi.
-    profile = journals_service.get_profile(req.journal)
+    # `profile` yuqorida aniqlangan (shablon hisobga olingan).
     compliance = compliance_service.check_compliance(article_text, found_sources, meta, profile)
     logger.info("Muvofiqlik (%s): %s | ✅%s ⚠️%s ❌%s", profile.get("name"),
                 "o'tkazdi" if compliance["passed"] else "o'tkarmadi",
@@ -327,6 +366,16 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         "compliance": compliance,
         "journal": profile.get("key"),
         "saved_at": time.time(),
+        "template": req.template,
+        "trilingual": tri,
+        "udk": udk_info.get("udk", ""),
+        "author": {
+            "name": req.author_name,
+            "affiliation": req.author_affiliation,
+            "city": req.author_city,
+            "email": req.author_email,
+            "orcid": req.author_orcid,
+        },
     }
     # Diskka yozamiz — server qayta ishga tushsa ham maqola yuklab olinadigan bo'lsin
     try:
@@ -354,6 +403,15 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
             "issues": [c["detail"] for c in compliance["checks"]
                        if c["status"] in ("fail", "warn")],
         },
+        # Shablon ma'lumoti (o'zbek jurnali formatida)
+        "template": req.template,
+        "trilingual": {
+            "titles": tri.get("title") or {},
+            "keywords": tri.get("keywords") or {},
+            "abstract_words": uz_template.word_counts(tri) if tri else {},
+            "udk": udk_info.get("udk", ""),
+            "udk_reason": udk_info.get("reason", ""),
+        } if tri else None,
         # Paket qismlari haqida qisqa ma'lumot (matnning o'zi ZIP ichida)
         "package": {
             "structured_abstract": bool(meta.get("structured_abstract")),
@@ -463,18 +521,37 @@ async def download_docx(session_id: str):
     if not data:
         raise HTTPException(status_code=404, detail="Sessiya topilmadi. Avval /generate chaqiring.")
 
-    docx_bytes = document_builder.build_docx(
-        title=data["topic"],
-        article_text=data["article_text"],
-        sources=data["sources"],
-        citation_style=data["citation_style"],
-        ai_disclosure=data.get("ai_disclosure", True),
-    )
+    docx_bytes = _build_docx_for_session(data)
 
     return StreamingResponse(
         io.BytesIO(docx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{session_id}.docx"'},
+    )
+
+
+def _build_docx_for_session(data: dict) -> bytes:
+    """
+    Sessiya shabloniga qarab to'g'ri Word quruvchini tanlaydi:
+      uz_journal -> UDK + uch tilli sarlavha/annotatsiya bilan
+      standard   -> oddiy ilmiy maqola
+    """
+    if data.get("template") == "uz_journal":
+        return document_builder.build_uz_docx(
+            article_text=data["article_text"],
+            sources=data["sources"],
+            tri=data.get("trilingual") or {},
+            citation_style=data["citation_style"],
+            udk=data.get("udk", ""),
+            author=data.get("author") or {},
+            ai_disclosure=data.get("ai_disclosure", False),
+        )
+    return document_builder.build_docx(
+        title=data["topic"],
+        article_text=data["article_text"],
+        sources=data["sources"],
+        citation_style=data["citation_style"],
+        ai_disclosure=data.get("ai_disclosure", False),
     )
 
 
@@ -494,13 +571,7 @@ async def download_package(session_id: str):
     if not data:
         raise HTTPException(status_code=404, detail="Sessiya topilmadi. Avval maqola yaratilgan bo'lishi kerak.")
 
-    docx_bytes = document_builder.build_docx(
-        title=data["topic"],
-        article_text=data["article_text"],
-        sources=data["sources"],
-        citation_style=data["citation_style"],
-        ai_disclosure=data.get("ai_disclosure", False),
-    )
+    docx_bytes = _build_docx_for_session(data)
 
     zip_bytes = manuscript_service.build_zip(
         article_markdown=data["article_text"],
@@ -511,6 +582,8 @@ async def download_package(session_id: str):
         word_count=len(data["article_text"].split()),
         compliance_markdown=compliance_service.compliance_to_markdown(data["compliance"])
         if data.get("compliance") else "",
+        trilingual=data.get("trilingual") or None,
+        udk=data.get("udk", ""),
     )
 
     return StreamingResponse(

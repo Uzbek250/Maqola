@@ -135,3 +135,113 @@ def build_docx(title: str, article_text: str, sources: list[dict],
     buffer = io.BytesIO()
     doc.save(buffer)
     return buffer.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# O'zbek jurnali shabloni: UDK + uch tilli sarlavha/annotatsiya + muallif bloki
+# ---------------------------------------------------------------------------
+
+def _add_body(doc, article_text: str) -> None:
+    """Maqola matnini Word'ga joylaydi (## -> sarlavha, qator -> paragraf)."""
+    for block in article_text.split("\n"):
+        block = block.strip()
+        if not block:
+            continue
+        m = re.match(r"^(#{1,3})\s+(.*)$", block)
+        if m:
+            doc.add_heading(_clean_inline(m.group(2)), level=min(len(m.group(1)), 3))
+            continue
+        # Jadval qatori (| bilan boshlanadigan) — oddiy matn sifatida
+        p = doc.add_paragraph(_clean_inline(block))
+        p.style.font.size = Pt(11)
+
+
+def build_uz_docx(article_text: str, sources: list[dict], tri: dict,
+                  citation_style: str = "vancouver", udk: str = "",
+                  author: dict | None = None, ai_disclosure: bool = False) -> bytes:
+    """
+    O'zbek jurnali talab qiladigan to'liq qo'lyozma:
+      UDK -> sarlavha (3 tilda) -> muallif bloki -> 3 tildagi annotatsiya va
+      kalit so'zlar -> asosiy matn -> adabiyotlar ro'yxati.
+
+    `tri` — uz_template.build_trilingual() natijasi.
+    `author` — {name, affiliation, city, country, email, orcid} (bo'sh bo'lsa joy egallovchi).
+    """
+    doc = Document()
+    tri = tri or {}
+    author = author or {}
+    titles = tri.get("title") or {}
+    abstracts = tri.get("abstract") or {}
+    keywords = tri.get("keywords") or {}
+
+    # --- UDK
+    if udk:
+        p = doc.add_paragraph(f"UDK: {udk}")
+        p.style.font.size = Pt(11)
+        p.runs[0].bold = True
+
+    # --- Sarlavha 3 tilda
+    for key in ("uz", "ru", "en"):
+        t = (titles.get(key) or "").strip()
+        if not t:
+            continue
+        h = doc.add_paragraph(t)
+        h.runs[0].bold = True
+        h.runs[0].font.size = Pt(14 if key == "uz" else 12)
+        h.alignment = 1  # markazga
+
+    doc.add_paragraph()
+
+    # --- Muallif bloki
+    name = author.get("name") or "[MUALLIF F.I.SH.]"
+    doc.add_paragraph(name).runs[0].bold = True
+    for line in (author.get("affiliation"), author.get("city"), author.get("email")):
+        if line:
+            doc.add_paragraph(line)
+    if author.get("orcid"):
+        doc.add_paragraph(f"ORCID: {author['orcid']}")
+
+    doc.add_paragraph()
+
+    # --- Uch tilli annotatsiya
+    labels = {
+        "uz": ("Annotatsiya.", "Kalit soʻzlar"),
+        "ru": ("Аннотация.", "Ключевые слова"),
+        "en": ("Abstract.", "Keywords"),
+    }
+    for key in ("uz", "ru", "en"):
+        txt = (abstracts.get(key) or "").strip()
+        if not txt:
+            continue
+        head, kw_label = labels[key]
+        p = doc.add_paragraph()
+        r = p.add_run(f"{head} ")
+        r.bold = True
+        p.add_run(txt).font.size = Pt(10)
+        kw = keywords.get(key) or []
+        if kw:
+            kp = doc.add_paragraph()
+            kr = kp.add_run(f"{kw_label}: ")
+            kr.bold = True
+            kp.add_run(", ".join(str(k) for k in kw)).font.size = Pt(10)
+
+    doc.add_page_break()
+
+    # --- Asosiy matn
+    _add_body(doc, article_text)
+
+    # --- AI deklaratsiyasi (standart: o'chiq)
+    if ai_disclosure:
+        doc.add_heading("Acknowledgment: Use of Artificial Intelligence", level=2)
+        for para in AI_DISCLOSURE_TEXT:
+            doc.add_paragraph(para).style.font.size = Pt(10)
+
+    # --- Adabiyotlar
+    doc.add_page_break()
+    doc.add_heading("FOYDALANILGAN ADABIYOTLAR ROʻYXATI", level=2)
+    for i, source in enumerate(sources, start=1):
+        doc.add_paragraph(_format_reference(source, i, citation_style))
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()

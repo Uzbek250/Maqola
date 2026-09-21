@@ -75,7 +75,19 @@
   <select id="journal">
     <option value="generic">Jurnal tanlanmagan (umumiy talablar)</option>
   </select>
+  <select id="template">
+    <option value="standard">Shablon: oddiy ilmiy maqola</option>
+    <option value="uz_journal">Shablon: o'zbek jurnali (UDK + 3 tilda annotatsiya)</option>
+  </select>
   <div class="hint" id="journal-hint">Jurnal tanlansa — maqola o'sha jurnal talabiga mos yoziladi va tekshiriladi.</div>
+  <details class="details-box" id="author-box">
+    <summary>Muallif ma'lumotlari (qo'lyozmada tayyor turadi)</summary>
+    <input id="author-name" placeholder="F.I.SH. — Xolmurodova Gulrux Qaxramonovna">
+    <input id="author-affiliation" placeholder="Muassasa — Buxoro Xalqaro instituti magistranti">
+    <input id="author-city" placeholder="Shahar, davlat — Buxoro, O'zbekiston">
+    <input id="author-email" placeholder="Email">
+    <input id="author-orcid" placeholder="ORCID — 0009-0009-8233-0217">
+  </details>
   <button onclick="generateArticle()" id="gen-btn">Maqola yaratish</button>
   <div id="status"></div>
   <div class="progress-wrap" id="progress-wrap">
@@ -228,6 +240,27 @@
       cbox.innerHTML = "";
     }
 
+    // Uch tilli qism (o'zbek jurnali shabloni)
+    const tri = data.trilingual;
+    if (tri && tri.titles) {
+      const langs = ["uz", "ru", "en"];
+      const rows = langs.map(l => {
+        const t = (tri.titles || {})[l] || "";
+        const k = ((tri.keywords || {})[l] || []).join(", ");
+        const w = (tri.abstract_words || {})[l];
+        if (!t) return "";
+        return `<div style="margin-top:6px"><strong>${l.toUpperCase()}</strong>${w ? ` (${w} so'z)` : ""}: ` +
+               `${escapeHtml(t)}${k ? `<br><span style="color:#666">${escapeHtml(k)}</span>` : ""}</div>`;
+      }).join("");
+      document.getElementById("compliance-output").insertAdjacentHTML("beforeend",
+        `<div class="compliance-box compliance-ok" style="margin-top:10px">
+           <strong>Shablon: o'zbek jurnali (3 til)</strong>
+           ${tri.udk ? `<div>UDK: ${escapeHtml(tri.udk)}</div>` : ""}
+           ${rows}
+           ${tri.udk_reason ? `<div style="color:#666;font-size:12px;margin-top:6px">UDK izohi: ${escapeHtml(tri.udk_reason)}</div>` : ""}
+         </div>`);
+    }
+
     document.getElementById("src-count").textContent = data.sources.length;
     document.getElementById("sources-output").innerHTML =
       data.sources.map(s => `• ${escapeHtml(s.title)} (${s.year})`).join("<br>");
@@ -264,7 +297,13 @@
           is_medical: document.getElementById("is-medical").value === "true",
           citation_style: document.getElementById("citation-style").value,
           language: document.getElementById("language").value,
-          journal: document.getElementById("journal").value
+          journal: document.getElementById("journal").value,
+          template: document.getElementById("template").value,
+          author_name: document.getElementById("author-name").value.trim(),
+          author_affiliation: document.getElementById("author-affiliation").value.trim(),
+          author_city: document.getElementById("author-city").value.trim(),
+          author_email: document.getElementById("author-email").value.trim(),
+          author_orcid: document.getElementById("author-orcid").value.trim()
         })
       });
 
