@@ -284,8 +284,17 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
 
     await _progress(job, 35, "Maqola rejasi tuzilmoqda")
 
+    # Uzunlik oralig'i MANBA SONIGA qarab (25 manba -> ~3250 so'z).
+    # Nega: 10 ta manba uchun 1800-2500 yetarli edi, lekin 25 manba bilan
+    # 2079 so'z chiqqan edi - har iqtibosga 48 so'z, ya'ni yuzaki sanab o'tish.
+    min_words, max_words = gpt_service.word_range(len(found_sources), profile)
+    logger.info("So'z oralig'i: %s-%s (manbalar: %s ta)", min_words, max_words, len(found_sources))
+
     try:
-        outline = await gpt_service.generate_outline(req.topic, found_sources, req.language)
+        outline = await gpt_service.generate_outline(
+            req.topic, found_sources, req.language,
+            required_sections=profile.get("required_sections"),
+        )
 
         await _progress(job, 45, "Maqola yozilmoqda")
         article_text = await gpt_service.write_article(
@@ -308,7 +317,7 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
     review = None
     try:
         review = await gemini_service.review_article(
-            article_text, found_sources, req.language, MIN_WORDS, MAX_WORDS
+            article_text, found_sources, req.language, min_words, max_words
         )
     except Exception:
         logger.exception("Gemini tekshiruvi ishlamadi — maqola tekshiruvsiz qaytariladi")
@@ -323,7 +332,7 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
                     article_text, review, found_sources, req.language
                 )
                 review = await gemini_service.review_article(
-                    article_text, found_sources, req.language, MIN_WORDS, MAX_WORDS
+                    article_text, found_sources, req.language, min_words, max_words
                 )
             except Exception:
                 logger.exception("Qayta yozish/tekshirishda xato — mavjud matn saqlanadi")
@@ -344,15 +353,15 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
     # Umumiy "qayta yozish" ko'rsatmasi buni ishonchli bajarmaydi (tekshirildi:
     # 2693 so'z chiqdi, 2500 limitidan oshdi va 2 marta qayta yozish ham tushirmadi).
     before = len(article_text.split())
-    if not (MIN_WORDS <= before <= MAX_WORDS):
+    if not (min_words <= before <= max_words):
         await _progress(job, 90, "So'z soni moslanmoqda")
         try:
             article_text = await gpt_service.adjust_length(
-                article_text, found_sources, req.language, MIN_WORDS, MAX_WORDS
+                article_text, found_sources, req.language, min_words, max_words
             )
             after = len(article_text.split())
             logger.info("So'z soni moslandi: %s -> %s", before, after)
-            review["uzunlik_muammosi"] = not (MIN_WORDS <= after <= MAX_WORDS)
+            review["uzunlik_muammosi"] = not (min_words <= after <= max_words)
         except Exception:
             logger.exception("Uzunlikni moslashtirib bo'lmadi — mavjud matn qoldiriladi")
 

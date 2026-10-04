@@ -231,14 +231,48 @@ async def _call_gpt(system_prompt: str, user_prompt: str, temperature: float, ma
     raise RuntimeError(f"GPT javob bermadi (barcha modellar sinaldi): {last_error}")
 
 
-async def generate_outline(topic: str, sources: list[dict], language: str = "en") -> str:
+def word_range(source_count: int, journal_profile: dict | None = None) -> tuple[int, int]:
+    """
+    Maqola uzunligini MANBA SONIGA qarab belgilaydi.
+
+    Nega: 25 ta manba bilan 2079 so'zlik maqola chiqqan edi — bu har bir iqtibosga
+    ~48 so'z, ya'ni manbalar yuzaki "sanab o'tilgan". Har bir manba chuqur
+    yoritilishi uchun joy kerak: taxminan 130 so'z/manba.
+
+    Jurnal so'z limiti bo'lsa — u ustun turadi (jurnal talabi buzuilmasin).
+    """
+    per_source = 130
+    lo, hi = MIN_WORDS, MAX_WORDS
+    if source_count >= 12:
+        hi = max(hi, min(source_count * per_source, 7000))
+        lo = min(max(lo, int(source_count * 70)), hi - 300)
+
+    jl = (journal_profile or {}).get("word_limit_main_text")
+    if jl:
+        hi = min(hi, int(jl))
+        lo = min(lo, int(hi * 0.8))
+    return int(lo), int(hi)
+
+
+async def generate_outline(topic: str, sources: list[dict], language: str = "en",
+                           required_sections: list[str] | None = None) -> str:
     """
     1-bosqich: to'liq maqoladan oldin qisqa reja (outline) tuziladi.
     Bu yozish jarayonini tuzilishli qiladi va GPT'ning "mavzudan chetga chiqishi"
     yoki manbalarni noto'g'ri ishlatishi ehtimolini kamaytiradi.
+
+    `required_sections` MUHIM: yozuvchi outliniaga "qat'iy amal qiladi", shuning
+    uchun majburiy bo'limlar (masalan "Methods / Search Strategy") shu yerda
+    ko'rsatilmasa, ular maqoladan butunlay tushib qoladi.
     """
     lang_name = LANGUAGE_NAMES.get(language, "ingliz")
     sources_block = _format_sources_for_prompt(sources)
+
+    sections = required_sections or [
+        "Introduction", "Methods / Search Strategy", "Literature Review",
+        "Discussion", "Conclusion",
+    ]
+    sections_text = "\n".join(f"   {i}. {s}" for i, s in enumerate(sections, 1))
 
     system_prompt = (
         "Sen tajribali ilmiy muharrirsan. Vazifang - maqola yozishdan oldin aniq, "
@@ -252,12 +286,21 @@ MANBALAR:
 Yuqoridagi manbalarni tahlil qilib, ilmiy maqola uchun batafsil outline (reja) tuz.
 Outline {lang_name} tilida bo'lsin.
 
+MAJBURIY BO'LIMLAR (AYNAN shu nomlar va tartibda, bittasini ham tashlab ketma):
+{sections_text}
+
 Har bir bo'lim uchun:
-- Bo'lim nomi
+- Bo'lim nomi (yuqoridagi ro'yxatdan AYNAN)
 - Nima haqida yozilishi (2-3 gap bilan)
 - Qaysi manbalar ([1], [2] kabi raqamlar bilan) shu bo'limda ishlatiladi
 
-Bo'limlar: Kirish, Adabiyotlar sharhi, Muhokama, Xulosa.
+QOIDALAR:
+- Har bir bo'limga KAMIDA 3 XIL manba belgila. Bitta manbaga tayanadigan
+  bo'lim ochma - bunday mavzuni boshqa manbalar bilan birlashtir.
+- Bo'limlar soni ko'p bo'lsa (5 tadan ortiq mustaqil mavzu), ularni birlashtir:
+  keng mavzuni ko'p bo'lakka bo'lishdan ko'ra 3-5 bo'limda chuqur yoritish yaxshi.
+- Har bir manba kamida bitta bo'limda ishlatilsin.
+
 Faqat outline'ni yoz, to'liq matn emas."""
 
     return await _call_gpt(system_prompt, user_prompt, temperature=0.6, max_tokens=1200)
@@ -289,7 +332,8 @@ async def write_article(
     # Nishon jurnal talablari. So'z limiti jurnal talabidan kelib chiqib toraytiriladi:
     # jurnal 2000 so'z desa, 2500 yozish muvofiqlikni buzadi.
     jp = journal_profile or {}
-    eff_min, eff_max = MIN_WORDS, MAX_WORDS
+    # Uzunlik manba soniga qarab (25 manba -> ~3250 so'z; jurnal limiti ustun)
+    eff_min, eff_max = word_range(len(sources), jp)
     jl = jp.get("word_limit_main_text")
     if jl and jl < eff_max:
         eff_max = int(jl)
@@ -398,13 +442,21 @@ QAT'IY QOIDALAR:
     manbalarda grant haqida ma'lumot bo'lmasa shu standart jumla)
     Bu bo'limlarga o'zingdan grant raqami yoki tashkilot nomi O'YLAB TOPMA.
 14. SINTEZ MAJBURIY (ENG MUHIM QOIDA): bu "referat" EMAS. Manbalarni birin-ketin
-    aytib chiqish ("X tadqiqot shuni topdi. Y tadqiqot buni topdi.") TAQIQLANADI.
-    Har bir bo'lim:
-      a) kamida 3 XIL manbaga tayansin. Bitta manbaga tayanadigan bo'lim yozma -
+    aytib chiqish TAQIQLANADI. Mana bu uslub XATO:
+      "Smith [3] found X. Jones [4] found Y. Ali [5] found Z."  <- TAQIQLANADI
+    To'g'ri uslub - manbalarni O'ZARO bog'lab yozish:
+      "Smith [3] reported X, but Jones [4], using a larger cohort, found no such
+       effect; the difference may reflect the shorter follow-up in [3]."  <- TO'G'RI
+    Har bir bo'limda:
+      a) kamida 3 XIL manba ishlatilsin. Bitta manbaga tayanadigan bo'lim yozma -
          bunday mavzuni boshqa manbalar bilan birlashtir yoki umuman ochma;
-      b) manbalarni O'ZARO solishtirsin: qayerda mos keladi, qayerda zid keladi;
-      c) oxirida SINTEZ jumlasi bo'lsin - bu dalillar birgalikda nimani anglatadi,
-         mavjud bilimga nima qo'shadi yoki nimani shubha ostiga oladi.
+      b) KAMIDA BITTA gap ikki yoki undan ortiq manbani ANIQ taqqoslasin
+         (mos kelishi yoki zid bo'lishi), sababini ham ko'rsat;
+      c) bo'lim oxirida SINTEZ jumlasi bo'lsin: bu dalillar birgalikda nimani
+         anglatadi, mavjud bilimga nima qo'shadi yoki nimani shubha ostiga oladi.
+    Manbalar soni ko'p bo'lsa, ularni guruhlab yoz (masalan "kohort tadqiqotlari
+    izchil ko'rsatadi [3,7,11], ammo RCTlarda natija boshqacha [4,9]") - har bir
+    manbani alohida gapda sanab chiqma.
 15. TANQIDIY TAHLIL: raqamni qayta aytib berish yetarli emas. Har bir asosiy da'vo
     uchun: dalil kuchlimi yoki zaifmi, nima uchun, va qanday sharoitda natija
     boshqacha bo'lishi mumkin - shuni yoz.
