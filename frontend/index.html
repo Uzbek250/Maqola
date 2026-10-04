@@ -32,6 +32,15 @@
   .package-btn:hover { background: #163f80; }
   .package-note { font-size: 12.5px; color: #666; margin-top: 8px; line-height: 1.5; }
   .hint { font-size: 12.5px; color: #666; margin-top: 6px; line-height: 1.5; }
+  /* Ism so'rash oynasi — faqat birinchi kirishda chiqadi */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
+                   align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+  .modal-overlay.show { display: flex; }
+  .modal-card { background: #fff; border-radius: 12px; padding: 22px; max-width: 420px; width: 100%;
+                box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+  .modal-card h2 { font-size: 18px; margin: 0 0 6px; }
+  .user-line { font-size: 12.5px; color: #555; margin-bottom: 12px; }
+  .user-line a { color: #1a4fa0; cursor: pointer; text-decoration: underline; margin-left: 6px; }
   .compliance-box { border-radius: 8px; padding: 12px 14px; margin-top: 12px; font-size: 13.5px; line-height: 1.7; }
   .compliance-ok { background: #eaf7ee; border: 1px solid #a8ddb8; }
   .compliance-warn { background: #fff8e6; border: 1px solid #f0d98c; }
@@ -49,6 +58,16 @@
 <body>
 
 <h1>📄 Maqola Generator</h1>
+<div class="user-line" id="user-line"></div>
+
+<div class="modal-overlay" id="name-modal">
+  <div class="modal-card">
+    <h2>Ismingizni kiriting</h2>
+    <p class="hint">Bir marta kiritiladi — brauzer eslab qoladi, keyingi safar so'ralmaydi.</p>
+    <input id="name-input" placeholder="Ism va familiya" autocomplete="name">
+    <button onclick="saveName()">Davom etish</button>
+  </div>
+</div>
 
 <div class="card">
   <label>1-qadam: Yo'nalish yoki mavzu</label>
@@ -119,6 +138,44 @@
 
 <script>
   const API_BASE = "";
+
+  // Foydalanuvchi ismi — bir marta so'raladi va brauzerda saqlanadi.
+  // Backend shu ism bo'yicha so'rovlar sonini hisoblaydi; bu raqam
+  // foydalanuvchiga KO'RSATILMAYDI.
+  const USER_KEY = "maqola_user";
+  let userName = localStorage.getItem(USER_KEY) || "";
+
+  function showUserName() {
+    const el = document.getElementById("user-line");
+    if (userName) {
+      el.innerHTML = `Foydalanuvchi: <strong>${escapeHtml(userName)}</strong>` +
+                     `<a onclick="changeName()">o'zgartirish</a>`;
+    } else {
+      el.innerHTML = "";
+    }
+  }
+
+  function saveName() {
+    const v = document.getElementById("name-input").value.trim();
+    if (!v) { alert("Iltimos, ismingizni kiriting"); return; }
+    userName = v;
+    localStorage.setItem(USER_KEY, v);
+    document.getElementById("name-modal").classList.remove("show");
+    showUserName();
+  }
+
+  function changeName() {
+    localStorage.removeItem(USER_KEY);
+    userName = "";
+    document.getElementById("name-input").value = "";
+    document.getElementById("name-modal").classList.add("show");
+    showUserName();
+  }
+
+  function ensureUserName() {
+    if (!userName) document.getElementById("name-modal").classList.add("show");
+    showUserName();
+  }
 
   let selectedTopic = "";
   let currentSessionId = "";
@@ -298,6 +355,7 @@
           citation_style: document.getElementById("citation-style").value,
           language: document.getElementById("language").value,
           journal: document.getElementById("journal").value,
+          user_name: userName,
           template: document.getElementById("template").value,
           author_name: document.getElementById("author-name").value.trim(),
           author_affiliation: document.getElementById("author-affiliation").value.trim(),
@@ -391,6 +449,7 @@
     }
   }
   loadJournals();
+  ensureUserName();
 </script>
 
 </body>

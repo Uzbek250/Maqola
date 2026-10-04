@@ -18,6 +18,10 @@ from app.config import NCBI_API_KEY, NCBI_EMAIL, SEMANTIC_SCHOLAR_API_KEY
 
 logger = logging.getLogger(__name__)
 
+# Oxirgi qidiruv statistikasi (find_sources yangilaydi) — metodologiya bo'limi
+# haqiqiy raqamlarga tayanishi uchun. Ilova raqam to'qimasligi kerak.
+SEARCH_STATS: dict = {}
+
 PUBMED_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 PUBMED_FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
@@ -399,22 +403,32 @@ async def find_sources(
     Asosiy funksiya: manbalarni yig'adi, sifat bo'yicha saralaydi, eng yaxshilarini qaytaradi.
     Ko'proq so'raladi (zaxira bilan), keyin saralab eng yaxshilari tanlanadi - shunda
     "birinchi topilgan" emas, "eng sifatli" manbalar AI'ga beriladi.
+
+    Yon ta'sir: SEARCH_STATS ni yangilaydi — metodologiya bo'limi HAQIQIY
+    raqamlarga (nechta topildi, nechta tanlandi) tayanishi uchun.
     """
+    global SEARCH_STATS
     raw_pool_size = max_results * 2
     results = []
+    per_db = {}
 
     if prefer_medical:
         try:
             results = await search_pubmed(query, raw_pool_size)
+            per_db["PubMed"] = len(results)
         except Exception as e:
-            print(f"PubMed xatosi: {e}")
+            logger.warning("PubMed xatosi: %s", e)
+            per_db["PubMed"] = 0
 
     if len(results) < raw_pool_size:
         try:
             extra = await search_semantic_scholar(query, raw_pool_size - len(results))
             results.extend(extra)
+            per_db["Semantic Scholar"] = len(extra)
         except Exception as e:
-            print(f"Semantic Scholar xatosi: {e}")
+            logger.warning("Semantic Scholar xatosi: %s", e)
+
+    retrieved_raw = len(results)
 
     seen_titles = set()
     unique_results = []
@@ -425,4 +439,16 @@ async def find_sources(
             unique_results.append(r)
 
     unique_results.sort(key=_quality_score, reverse=True)
-    return unique_results[:max_results]
+    selected = unique_results[:max_results]
+
+    SEARCH_STATS = {
+        "query": query,
+        "per_database": per_db,
+        "retrieved_raw": retrieved_raw,
+        "duplicates_removed": retrieved_raw - len(unique_results),
+        "after_screening": len(unique_results),
+        "selected": len(selected),
+        "max_requested": max_results,
+    }
+    logger.info("Qidiruv statistikasi: %s", SEARCH_STATS)
+    return selected

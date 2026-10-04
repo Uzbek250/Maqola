@@ -53,6 +53,38 @@ JOB_TTL_SECONDS = 3600  # 1 soatdan keyin eski joblar o'chiriladi
 SESSION_STORE.update(store_service.load_sessions())
 JOBS.update(store_service.load_jobs())
 
+# Foydalanuvchi bo'yicha so'rovlar hisobi. Frontend'ga QAYTARILMAYDI —
+# bu egasi uchun (admin endpoint + loglar). Kalit: foydalanuvchi ismi.
+USAGE: dict[str, dict] = {}
+USAGE.update(store_service.load_usage())
+
+
+def _record_usage(user_name: str, topic: str, template: str, journal: str) -> dict:
+    """
+    So'rovni hisobga oladi (foydalanuvchi ismi bo'yicha).
+    Ism berilmasa 'anonim' ga yoziladi — hisob baribir yuritiladi.
+    """
+    name = (user_name or "").strip() or "anonim"
+    now = time.time()
+    entry = USAGE.setdefault(name, {
+        "count": 0, "first_seen": now, "last_seen": now,
+        "topics": [], "templates": {}, "journals": {},
+    })
+    entry["count"] += 1
+    entry["last_seen"] = now
+    entry["templates"][template] = entry["templates"].get(template, 0) + 1
+    entry["journals"][journal] = entry["journals"].get(journal, 0) + 1
+    # Oxirgi 20 mavzuni saqlaymiz (fayl cheksiz o'smasin)
+    entry["topics"] = ([str(topic)[:120]] + entry.get("topics", []))[:20]
+
+    logger.info("FOYDALANISH: %s — jami %s so'rov (shablon: %s, jurnal: %s)",
+                name, entry["count"], template, journal)
+    try:
+        store_service.save_usage(USAGE)
+    except Exception:
+        logger.exception("Foydalanish statistikasini saqlab bo'lmadi")
+    return entry
+
 
 def _prune_jobs() -> None:
     """Eski/tugagan joblarni tozalaydi — xotira cheksiz o'smasin."""
@@ -118,6 +150,14 @@ class GenerateRequest(BaseModel):
     author_email: str = ""
     author_orcid: str = ""
 
+    # Yig'iladigan manbalar soni. Sharh maqolasi uchun 10 ta juda kam
+    # (tanqid: "nafas tizimi kabi keng mavzu uchun 10 ta manba yetarli emas").
+    max_sources: int = 25
+
+    # Foydalanuvchi ismi — frontend bir marta so'raydi va saqlab qo'yadi.
+    # Backend shu ism bo'yicha so'rovlar sonini hisoblaydi (frontend ko'rmaydi).
+    user_name: str = ""
+
 
 @app.get("/")
 async def root():
@@ -161,6 +201,9 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
     if req.language not in ("uz", "en", "ru"):
         raise HTTPException(status_code=400, detail="language 'uz', 'en' yoki 'ru' bo'lishi kerak")
 
+    # So'rovni hisobga olamiz (ism bo'yicha) — frontend'ga qaytarilmaydi
+    _record_usage(req.user_name, req.topic, req.template, req.journal)
+
     await _progress(job, 5, "Mavzu tahlil qilinmoqda")
 
     # Mavzu o'zbek/rus tilida bo'lishi mumkin, lekin PubMed faqat inglizchani indekslaydi.
@@ -191,7 +234,7 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
                 profile.get("name"), profile.get("required_sections"))
 
     found_sources = await sources_service.find_sources(
-        search_query, prefer_medical=prefer_medical, max_results=10
+        search_query, prefer_medical=prefer_medical, max_results=req.max_sources
     )
 
     # Topilmasa — yanada kengroq (kamroq kalit so'zli) so'rov bilan bir marta qayta urinamiz
@@ -200,7 +243,7 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         if wider and wider != search_query:
             logger.info("Manba topilmadi — kengroq so'rov sinaladi: %r", wider)
             found_sources = await sources_service.find_sources(
-                wider, prefer_medical=prefer_medical, max_results=10
+                wider, prefer_medical=prefer_medical, max_results=req.max_sources
             )
 
     if not found_sources:
@@ -249,6 +292,8 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
             req.topic, found_sources, req.citation_style, req.language, outline=outline,
             search_query=search_query, databases=databases,
             journal_profile=profile,
+            search_stats=sources_service.SEARCH_STATS,
+            search_date=time.strftime("%Y-%m-%d"),
         )
     except Exception:
         logger.exception("Maqola yozishda xato (mavzu=%r)", req.topic)
@@ -559,6 +604,45 @@ def _build_docx_for_session(data: dict) -> bytes:
 async def list_journals():
     """Mavjud jurnal profillari (Bosqich 2). `journal` parametri uchun kalitlar."""
     return {"journals": journals_service.list_profiles()}
+
+
+@app.get("/usage")
+async def usage_stats(key: str = ""):
+    """
+    Foydalanish statistikasi — FAQAT EGASI uchun (frontend'da ko'rsatilmaydi).
+
+    MAQOLA_ADMIN_KEY env o'zgaruvchisi o'rnatilmagan bo'lsa endpoint o'chirilgan
+    (404). Xato kalit ham 404 qaytaradi — endpoint mavjudligini bildirmaslik uchun.
+    Ko'rish: /usage?key=<kalit>
+    """
+    admin_key = os.getenv("MAQOLA_ADMIN_KEY", "").strip()
+    if not admin_key or key != admin_key:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    def _fmt(ts) -> str:
+        try:
+            return time.strftime("%Y-%m-%d %H:%M", time.localtime(float(ts)))
+        except (TypeError, ValueError):
+            return "—"
+
+    users = [
+        {
+            "name": name,
+            "requests": u.get("count", 0),
+            "first_seen": _fmt(u.get("first_seen")),
+            "last_seen": _fmt(u.get("last_seen")),
+            "templates": u.get("templates", {}),
+            "journals": u.get("journals", {}),
+            "recent_topics": (u.get("topics") or [])[:5],
+        }
+        for name, u in USAGE.items()
+    ]
+    users.sort(key=lambda x: x["requests"], reverse=True)
+    return {
+        "total_requests": sum(u["requests"] for u in users),
+        "total_users": len(users),
+        "users": users,
+    }
 
 
 @app.get("/download/{session_id}/package")

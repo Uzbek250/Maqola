@@ -56,6 +56,12 @@ Rules:
 - The three titles must be faithful translations of the same title, not different titles.
 - Each abstract: 150-220 words, a single paragraph, no subheadings. Write it as a
   self-contained summary of the manuscript: what was studied, how, what was found, what it means.
+- Write each abstract as an INDEPENDENT, IDIOMATIC text in its own language, the way a
+  native academic author of that language would write it. Do NOT translate word-for-word:
+  Russian and Uzbek abstracts must not read as a literal rendering of the English one.
+  Use the natural academic conventions of each language (Uzbek: ilmiy uslub; Russian:
+  научный стиль), and expect the sentence structure to differ between the three.
+  The CONTENT must be the same in all three; the WORDING must be native to each language.
 - Each abstract must correspond to the ACTUAL manuscript text you are given. Do not add
   results, numbers, sample sizes or findings that are not present in the text. If the
   manuscript contains no empirical data, do not invent any — describe what the work does.

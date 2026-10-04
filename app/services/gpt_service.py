@@ -272,6 +272,8 @@ async def write_article(
     search_query: str | None = None,
     databases: list[str] | None = None,
     journal_profile: dict | None = None,
+    search_stats: dict | None = None,
+    search_date: str | None = None,
 ) -> str:
     """
     2-bosqich: outline asosida to'liq ilmiy maqola yoziladi.
@@ -315,8 +317,21 @@ async def write_article(
 
     outline_block = f"\n\nTAYYORLANGAN OUTLINE (shu rejaga qat'iy amal qil):\n{outline}" if outline else ""
 
-    # Metodologiya bo'limi HAQIQIY ma'lumotga tayanishi kerak — to'qilmasin
+    # Metodologiya bo'limi HAQIQIY ma'lumotga tayanishi kerak — to'qilmasin.
+    # Endi qidiruv statistikasi ham qo'shiladi: sana, har bir bazadan nechta
+    # natija, qancha dublikat, nechta tanlandi. Bu tanqidning asosiy nuqtasi edi:
+    # "qidiruv sanasi, filtrlari, nechta topilgani yozilmagan".
     db_list = ", ".join(databases or ["PubMed", "Semantic Scholar"])
+    stats_block = ""
+    if search_stats:
+        per_db = search_stats.get("per_database") or {}
+        per_db_text = ", ".join(f"{k}: {v} ta" for k, v in per_db.items()) or "ko'rsatilmagan"
+        stats_block = (
+            f"- Qidiruv sanasi: {search_date or 'koʻrsatilmagan'}\n"
+            f"- Har bir bazadan olingan natijalar: {per_db_text}\n"
+            f"- Dublikatlar olib tashlangandan keyin: {search_stats.get('after_screening')} ta\n"
+            f"- Yakuniy tanlab olindi: {search_stats.get('selected')} ta\n"
+        )
     method_block = f"""
 MAJBURIY "Methods / Search Strategy" BO'LIMI:
 Maqolaga manbalar qanday topilganini yozuvchi qisqa bo'lim qo'sh (Kirishdan keyin).
@@ -324,9 +339,13 @@ FAQAT quyidagi HAQIQIY ma'lumotlarni ishlat:
 - Ma'lumot bazalari: {db_list}
 - Qidiruv so'rovi (inglizcha kalit so'zlar): {search_query or topic}
 - Tanlangan manbalar soni: {len(sources)} ta
-- Saralash mezoni: mavzuga moslik, abstract to'liqligi va manbaning yangiligi
-Bu bo'limda aniq raqamlar (nechta topildi/tanlandi) faqat yuqoridagilar bo'lsin —
-o'zingdan qo'shimcha son, sana yoki baza O'YLAB TOPMA.""" if search_query else ""
+{stats_block}- Saralash mezoni: mavzuga moslik, annotatsiya to'liqligi va manbaning yangiligi
+MUHIM: bu TANLAB OLINGAN (narrative) sharh, TIZIMLI (systematic) sharh EMAS.
+Buni bo'limda ochiq yoz - "PRISMA" yoki "systematic" deb atama, chunki tizimli
+qidiruv protokoli qo'llanilmagan. Agar yuqoridagi raqamlar berilmagan bo'lsa,
+raqam yozma - "aniq son qayd etilmagan" deb qoldir.
+Bu bo'limda aniq raqamlar faqat yuqoridagilar bo'lsin — o'zingdan qo'shimcha son,
+sana yoki baza O'YLAB TOPMA.""" if search_query else ""
 
     system_prompt = f"""Sen 15 yillik tajribaga ega ilmiy muallifsan, ko'plab jurnallarda nashr etilgan
 maqolalar yozgansan. Yozish uslubing tabiiy, ekspert darajasida va HECH QACHON AI matniga
@@ -377,7 +396,33 @@ QAT'IY QOIDALAR:
     manbalarda boshqacha ma'lumot bo'lmasa shu standart jumla)
     "## Funding" - "This work received no specific grant from any funding agency." (agar
     manbalarda grant haqida ma'lumot bo'lmasa shu standart jumla)
-    Bu bo'limlarga o'zingdan grant raqami yoki tashkilot nomi O'YLAB TOPMA."""
+    Bu bo'limlarga o'zingdan grant raqami yoki tashkilot nomi O'YLAB TOPMA.
+14. SINTEZ MAJBURIY (ENG MUHIM QOIDA): bu "referat" EMAS. Manbalarni birin-ketin
+    aytib chiqish ("X tadqiqot shuni topdi. Y tadqiqot buni topdi.") TAQIQLANADI.
+    Har bir bo'lim:
+      a) kamida 3 XIL manbaga tayansin. Bitta manbaga tayanadigan bo'lim yozma -
+         bunday mavzuni boshqa manbalar bilan birlashtir yoki umuman ochma;
+      b) manbalarni O'ZARO solishtirsin: qayerda mos keladi, qayerda zid keladi;
+      c) oxirida SINTEZ jumlasi bo'lsin - bu dalillar birgalikda nimani anglatadi,
+         mavjud bilimga nima qo'shadi yoki nimani shubha ostiga oladi.
+15. TANQIDIY TAHLIL: raqamni qayta aytib berish yetarli emas. Har bir asosiy da'vo
+    uchun: dalil kuchlimi yoki zaifmi, nima uchun, va qanday sharoitda natija
+    boshqacha bo'lishi mumkin - shuni yoz.
+16. KO'LAMNI CHEKLA: bitta maqolada 3-5 tadan ortiq MUSTAQIL mavzuni ochma. Mavzu
+    keng bo'lsa, bo'limlar sonini kamaytirib, qolganlarini chuqur yorit.
+    "Hamma narsa haqida bir oz" yondashuvi TAQIQLANADI - 2-3 mavzuni chuqur ochish
+    6-7 mavzuni sayoz tashlab o'tishdan ancha yaxshi.
+17. CHEKLOVNI BIR MARTA AYT: "namuna hajmi ko'rsatilmagan" yoki "bu hayvon modeli"
+    degan ogohlantirishni har paragrafda TAKRORLAMA. Bir marta ayt va o'sha yerda
+    hal qil: dalil zaif bo'lsa, undan MARKAZIY xulosa chiqarma - uni kontekst
+    sifatida ishlat. Ogohlantirishni qalqon qilib ishlatish tahlil o'rnini bosmaydi.
+18. KIRISH OXIRIDA ANIQ MAQSAD: Kirish bo'limi oxirida:
+    - tadqiqot savoli yoki maqsad (1-2 aniq gap);
+    - bu sharh mavjud bilimga nima qo'shishi (nima noma'lum qolgan).
+    Umumiy darslik uslubidagi kirish ("X muhim ahamiyatga ega", "so'nggi yillarda
+    ko'p e'tibor qaratilmoqda") YETARLI EMAS.
+19. TAKRORIY BO'LIMLARGA YO'L QO'YMA: bir mavzu ikki bo'limda takrorlansa, ularni
+    birlashtir. Har bir bo'lim o'ziga xos savolga javob bersin."""
 
     user_prompt = f"""Mavzu: {topic}
 

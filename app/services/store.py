@@ -27,6 +27,7 @@ logger = logging.getLogger("app.services.store")
 DATA_DIR = Path(os.getenv("MAQOLA_DATA_DIR", "data"))
 SESSIONS_FILE = DATA_DIR / "sessions.json"
 JOBS_FILE = DATA_DIR / "jobs.json"
+USAGE_FILE = DATA_DIR / "usage.json"
 
 MAX_SESSIONS = int(os.getenv("MAQOLA_MAX_SESSIONS", "50"))
 MAX_JOBS = int(os.getenv("MAQOLA_MAX_JOBS", "50"))
@@ -109,3 +110,17 @@ def save_jobs(jobs: dict) -> None:
 
 def stamp() -> float:
     return time.time()
+
+
+# ---------------------------------------------------------------- foydalanish
+# Har bir foydalanuvchi nechta so'rov yuborgani. Frontend'da KO'RSATILMAYDI —
+# bu egasi uchun ma'lumot (admin endpoint + loglar orqali ko'riladi).
+
+def load_usage() -> dict:
+    with _lock:
+        return _read(USAGE_FILE)
+
+
+def save_usage(usage: dict) -> None:
+    with _lock:
+        _write(USAGE_FILE, usage)
