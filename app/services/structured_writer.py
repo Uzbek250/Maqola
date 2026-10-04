@@ -35,6 +35,11 @@ INTRO, METHODS, THEME, DISCUSSION, LIMITATIONS, CONCLUSION = (
 MAX_THEMES = 5
 MIN_SOURCES_PER_THEME = 3
 
+# Promptga sig'adigan chegaralar. 25 manbaning to'liq matni ~800 000 belgi
+# bo'lishi mumkin — bitta so'rovga sig'maydi va API xato beradi.
+MAX_FULLTEXT_CHARS = 6000      # har bir manbadan eng ko'pi shuncha belgi
+MAX_PROMPT_SOURCES = 8         # bitta so'rovda ko'pi bilan shuncha manba
+
 # Uzunlik ulushlari (jami nishonga nisbatan)
 SHARES = {INTRO: 0.13, METHODS: 0.07, DISCUSSION: 0.16, LIMITATIONS: 0.06, CONCLUSION: 0.04}
 
@@ -347,6 +352,35 @@ Faqat bo'lim matnini yoz."""
     return await gpt_service._call_gpt(system_prompt, user_prompt, temperature=0.7, max_tokens=3000)
 
 
+def section_budgets(themes: list[dict], source_count: int,
+                    journal_limit: int | None = None) -> dict:
+    """
+    Har bir bo'limga so'z byudjetini KOD belgilaydi.
+
+    Printsip: mavzu bo'limi o'z manbalarining har biriga ~130 so'z ajratadi
+    (5 manba -> ~650 so'z). Shu bilan "yuzaki sanab o'tish" oldini olinadi.
+    Jurnal limiti oshib ketsa — hammasi proporsional qisqartiriladi.
+    """
+    per_source = 130
+    theme_b = [max(350, len(th["ids"]) * per_source) for th in themes] or [900]
+    b = {
+        "themes": theme_b,
+        "intro": max(400, int(source_count * 15)),
+        "discussion": max(450, int(source_count * 25)),
+        "limitations": 260,
+        "conclusion": 160,
+    }
+    total = sum(theme_b) + b["intro"] + b["discussion"] + b["limitations"] + b["conclusion"]
+    if journal_limit and total > journal_limit:
+        k = journal_limit / total
+        b["themes"] = [max(200, int(x * k)) for x in theme_b]
+        b["intro"] = max(250, int(b["intro"] * k))
+        b["discussion"] = max(300, int(b["discussion"] * k))
+        b["limitations"] = max(120, int(b["limitations"] * k))
+        b["conclusion"] = max(100, int(b["conclusion"] * k))
+    return b
+
+
 async def write_article_structured(
     topic: str, sources: list[dict], language: str = "en",
     journal_profile: dict | None = None, search_stats: dict | None = None,
@@ -359,27 +393,39 @@ async def write_article_structured(
     Qaytaradi: (to'liq markdown matn, mavzular ro'yxati)
     """
     jp = journal_profile or {}
-    lo, hi = gpt_service.word_range(len(sources), jp)
-    target = hi if hi > 3000 else int((lo + hi) / 2)
     t = TITLES.get(language, TITLES["en"])
 
     # 1) Mavzular (kod nazorat qiladi)
     themes = await plan_themes(topic, sources, language)
 
+    # So'z byudjeti — KOD belgilaydi (manba soniga qarab), model emas
+    budgets = section_budgets(themes, len(sources), jp.get("word_limit_main_text"))
+    logger.info("So'z byudjeti: mavzular=%s, kirish=%s, muhokama=%s (jami ~%s)",
+                budgets["themes"], budgets["intro"], budgets["discussion"],
+                sum(budgets["themes"]) + budgets["intro"] + budgets["discussion"]
+                + budgets["limitations"] + budgets["conclusion"])
+
     # Manbalarni [1..N] global raqamlash uchun xarita
     global_idx = {id(s): i for i, s in enumerate(sources, 1)}
 
     def relabel(theme_sources: list[dict]) -> list[dict]:
-        """Mavzu manbalarini GLOBAL raqamlar bilan qaytaradi ([1..N] saqlanadi)."""
+        """
+        Mavzu manbalarini GLOBAL raqamlar bilan qaytaradi ([1..N] saqlanadi).
+
+        To'liq matn QISQARTIRILADI: 25 manbaning to'liq matni ~800 000 belgi
+        bo'lishi mumkin — bu bitta so'rovning kontekstiga sig'maydi va API xato
+        beradi (natijada butun maqola eski usulga qaytib ketardi). Har bir
+        manbadan eng muhim qismini olamiz.
+        """
         out = []
-        for s in theme_sources:
+        for s in theme_sources[:MAX_PROMPT_SOURCES]:
             c = dict(s)
             c["_global_no"] = global_idx.get(id(s))
+            ft = (c.get("full_text") or "").strip()
+            if len(ft) > MAX_FULLTEXT_CHARS:
+                c["full_text"] = ft[:MAX_FULLTEXT_CHARS] + "\n[... matn qisqartirildi ...]"
             out.append(c)
         return out
-
-    theme_share = 1.0 - sum(SHARES.values())
-    per_theme_words = max(320, int(target * theme_share / max(len(themes), 1)))
 
     # 2) Kirish
     intro_sources = relabel(sources[:min(len(sources), 12)])
@@ -390,7 +436,7 @@ async def write_article_structured(
         "Kirish: mavzuning dolzarbligi, nima ma'lum va nima noma'lum ekani. "
         "OXIRIDA aniq tadqiqot savoli/maqsadi va bu sharh mavjud bilimga nima "
         "qo'shishi bo'lsin. Umumiy darslik uslubida yozma.",
-        intro_sources, topic, language, int(target * SHARES[INTRO]),
+        intro_sources, topic, language, budgets["intro"],
         all_source_count=len(sources),
     )
 
@@ -413,7 +459,7 @@ async def write_article_structured(
             f"«{th['title']}» mavzusini chuqur yorit. Berilgan {len(ts)} ta manbani "
             f"O'ZARO taqqoslab yoz, kamida uchtasini ishlat. Manbalar orasida zid "
             f"natijalar bo'lsa, shuni aniq ayt va mumkin bo'lgan sababini ko'rsat.",
-            ts, topic, language, per_theme_words,
+            ts, topic, language, budgets["themes"][i - 1],
             context="; ".join(x["title"] for x in themes if x is not th),
             all_source_count=len(sources),
         )
@@ -429,7 +475,7 @@ async def write_article_structured(
         "Umumiy muhokama: bo'limlardagi dalillarni BIRGALIKDA talqin qil. "
         "Qarama-qarshiliklarni hal qilishga harakat qil, klinik/amaliy ahamiyatini "
         "ko'rsat, dalil kuchini baholang (dalil kuchli yoki zaif, nima uchun).",
-        disc_sources, topic, language, int(target * SHARES[DISCUSSION]),
+        disc_sources, topic, language, budgets["discussion"],
         context="; ".join(x["title"] for x in themes),
         all_source_count=len(sources),
     )
@@ -442,7 +488,7 @@ async def write_article_structured(
         t["limitations"],
         "Cheklovlar: bu sharhning cheklovlari (tanlab olingan, manba soni, "
         "heterogenlik) va keyingi tadqiqotlar uchun yo'nalishlar.",
-        lim_sources, topic, language, int(target * SHARES[LIMITATIONS]),
+        lim_sources, topic, language, budgets["limitations"],
         all_source_count=len(sources),
     )
 
@@ -454,7 +500,7 @@ async def write_article_structured(
         "Xulosa: 3-5 gap. Faqat matnda allaqachon aytilgan dalillardan kelib "
         "chiqib, asosiy xulosani ber. Yangi fakt yoki yangi manba kiritma.",
         relabel(sources[:min(len(sources), 10)]), topic, language,
-        int(target * SHARES[CONCLUSION]),
+        budgets["conclusion"],
         all_source_count=len(sources),
     )
 

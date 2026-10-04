@@ -239,17 +239,16 @@ def word_range(source_count: int, journal_profile: dict | None = None) -> tuple[
     """
     Maqola uzunligini MANBA SONIGA qarab belgilaydi.
 
-    Nega: 25 ta manba bilan 2079 so'zlik maqola chiqqan edi — bu har bir iqtibosga
-    ~48 so'z, ya'ni manbalar yuzaki "sanab o'tilgan". Har bir manba chuqur
-    yoritilishi uchun joy kerak: taxminan 130 so'z/manba.
+    Nega: 25 ta manba bilan 2079-2272 so'z chiqardi — bu har bir iqtibosga
+    ~90 so'z, ya'ni manbalar yuzaki "sanab o'tilgan". Har bir manba chuqur
+    yoritilishi uchun taxminan 130 so'z kerak, ustiga Kirish/Muhokama/Xulosa
+    uchun ~1200 so'z qo'shiladi.
 
-    Jurnal so'z limiti bo'lsa — u ustun turadi (jurnal talabi buzuilmasin).
+    Jurnal so'z limiti bo'lsa — u ustun turadi (jurnal talabi buzilmasin).
     """
-    per_source = 130
-    lo, hi = MIN_WORDS, MAX_WORDS
-    if source_count >= 12:
-        hi = max(hi, min(source_count * per_source, 7000))
-        lo = min(max(lo, int(source_count * 70)), hi - 300)
+    base = source_count * 130 + 1200
+    lo = max(MIN_WORDS, int(base * 0.85))
+    hi = max(MAX_WORDS, int(base * 1.15))
 
     jl = (journal_profile or {}).get("word_limit_main_text")
     if jl:
