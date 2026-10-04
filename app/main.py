@@ -60,6 +60,11 @@ USAGE: dict[str, dict] = {}
 USAGE.update(store_service.load_usage())
 
 
+def _headings(text: str) -> list[str]:
+    """Matndagi ## sarlavhalar ro'yxati (tuzilma qo'riqchisi uchun)."""
+    return [ln.strip() for ln in text.splitlines() if ln.strip().startswith("## ")]
+
+
 def _record_usage(user_name: str, topic: str, template: str, journal: str) -> dict:
     """
     So'rovni hisobga oladi (foydalanuvchi ismi bo'yicha).
@@ -346,9 +351,31 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
             await _progress(job, 78 + rewrite_count * 4,
                             f"Qayta yozilmoqda ({rewrite_count + 1}/{MAX_REWRITE_ATTEMPTS})")
             try:
-                article_text = await gpt_service.rewrite_article(
-                    article_text, review, found_sources, req.language
+                before_headings = _headings(article_text)
+                rewritten = await gpt_service.rewrite_article(
+                    article_text, review, found_sources, req.language,
+                    min_words=min_words, max_words=max_words,
                 )
+                after_headings = _headings(rewritten)
+                missing = [h for h in before_headings if h not in after_headings]
+
+                if missing:
+                    # TUZILMA QO'RIQCHISI. Bo'limlar soni, Methods bo'limi va
+                    # har bir bo'limdagi manba soni KOD tomonidan kafolatlangan
+                    # (structured_writer). Umumiy "qayta yozish" ko'rsatmasi
+                    # butun matnni qaytadan yozadi va bu kafolatni buzadi —
+                    # sinovda Methods, Discussion va Limitations bo'limlari
+                    # butunlay yo'qolgan edi.
+                    # Shu sababli: tuzilma buzilsa qayta yozish RAD ETILADI,
+                    # oldingi (strukturasi to'g'ri) matn saqlanadi.
+                    logger.warning(
+                        "Qayta yozish tuzilmani buzdi — %s bo'lim yo'qoldi (%s). "
+                        "Qayta yozish rad etildi, oldingi matn saqlanadi.",
+                        len(missing), missing[:5],
+                    )
+                else:
+                    article_text = rewritten
+
                 review = await gemini_service.review_article(
                     article_text, found_sources, req.language, min_words, max_words
                 )

@@ -82,6 +82,10 @@ BANNED_PHRASES_RU = [
 MIN_WORDS = 1800
 MAX_WORDS = 2500
 
+# Promptga qo'shiladigan to'liq matn chegarasi. 25 manbaning to'liq matni
+# ~600 000+ belgi bo'lishi mumkin — bitta so'rovga sig'maydi.
+MAX_FULLTEXT_IN_PROMPT = 6000
+
 
 def _format_sources_for_prompt(sources: list[dict]) -> str:
     lines = []
@@ -102,7 +106,12 @@ def _format_sources_for_prompt(sources: list[dict]) -> str:
         # To'liq matn bo'lsa — shuni ishlatamiz (Bosqich 3). Model qaysi manba
         # to'liq o'qilganini va qaysi biri faqat abstract ekanini bilishi kerak:
         # abstract'dan aniqlik talab qilib bo'lmaydi.
+        # Lekin QISQARTIRAMIZ: 25 manbaning to'liq matni ~600 000+ belgi bo'lishi
+        # mumkin — bu bitta so'rovning kontekstiga sig'maydi va API xato beradi
+        # (natijada maqola eski usulga qaytib ketardi).
         full_text = (s.get("full_text") or "").strip()
+        if len(full_text) > MAX_FULLTEXT_IN_PROMPT:
+            full_text = full_text[:MAX_FULLTEXT_IN_PROMPT] + "\n[... matn qisqartirildi ...]"
         if full_text:
             detail = f"    FULL TEXT (open access — primary source of detail):\n{full_text}"
             mark = " [FULL TEXT]"
@@ -510,6 +519,8 @@ async def rewrite_article(
     review_feedback: dict,
     sources: list[dict],
     language: str = "en",
+    min_words: int = MIN_WORDS,
+    max_words: int = MAX_WORDS,
 ) -> str:
     """
     3-bosqich: Gemini'ning tanqidiy fikri asosida GPT maqolani qayta yozadi.
@@ -522,7 +533,13 @@ async def rewrite_article(
 
     system_prompt = f"""Sen ilmiy matnni retsenzent fikri asosida tuzatuvchi tajribali muharrirsan.
 Klishe iboralarni ishlatma: {banned}
-Maqola {MIN_WORDS}-{MAX_WORDS} so'z oralig'ida qolishi kerak."""
+Matn {min_words}-{max_words} so'z oralig'ida qolishi kerak.
+
+TUZILMA QAT'IY SAQLANADI (buzilishi mumkin emas):
+- Matndagi BARCHA "## " sarlavhalar AYNAN shu nom bilan, AYNAN shu tartibda
+  qolishi shart. Bittasini ham o'chirma, nomini o'zgartirma.
+- Yangi sarlavha qo'shma.
+- Faqat sarlavhalar ORASIDAGI matnni tuzatasan, tuzilmani emas."""
 
     user_prompt = f"""Quyidagi maqolani retsenzent tanqid qildi. Muammolarni TO'LIQ tuzatib,
 matnni {lang_name} tilida qayta yoz. Faqat berilgan manbalarga tayan, hech qanday yangi
