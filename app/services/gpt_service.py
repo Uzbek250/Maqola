@@ -86,6 +86,10 @@ MAX_WORDS = 2500
 def _format_sources_for_prompt(sources: list[dict]) -> str:
     lines = []
     for i, s in enumerate(sources, start=1):
+        # Bo'lim-bo'lim yozishda har bir bo'lim faqat o'z manbalarini ko'radi,
+        # lekin iqtibos raqamlari GLOBAL bo'lishi shart (oxirgi adabiyotlar
+        # ro'yxatiga mos kelishi uchun). `_global_no` shu uchun.
+        no = s.get("_global_no") or i
         authors = ", ".join(s.get("authors", [])[:3]) or "muallif noma'lum"
         year = s.get("year") or "y.y."
         doi_text = s.get("doi") or "yo'q"
@@ -107,7 +111,7 @@ def _format_sources_for_prompt(sources: list[dict]) -> str:
             mark = " [ABSTRACT ONLY]"
 
         lines.append(
-            f'[{i}] {authors} ({year}). "{title}". '
+            f'[{no}] {authors} ({year}). "{title}". '
             f"{journal}{citation_note}. DOI: {doi_text}{mark}\n"
             f"{detail}"
         )

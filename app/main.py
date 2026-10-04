@@ -19,6 +19,7 @@ from app.services import journals as journals_service
 from app.services import compliance as compliance_service
 from app.services import store as store_service
 from app.services import uz_template
+from app.services import structured_writer
 
 # Xatolarning haqiqiy sababi Render loglarida ko'rinishi uchun
 logging.basicConfig(
@@ -297,13 +298,30 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         )
 
         await _progress(job, 45, "Maqola yozilmoqda")
-        article_text = await gpt_service.write_article(
-            req.topic, found_sources, req.citation_style, req.language, outline=outline,
-            search_query=search_query, databases=databases,
-            journal_profile=profile,
-            search_stats=sources_service.SEARCH_STATS,
-            search_date=time.strftime("%Y-%m-%d"),
-        )
+        # ARXITEKTURA: butun maqolani bitta so'rovda so'rash ISHLAMADI — model
+        # qoidalarni e'tiborsiz qoldirdi (10 bo'lim ochdi, 4 tasida 3 dan kam
+        # manba, taqqoslash iboralari kamaydi). Endi bo'lim-bo'lim yozamiz:
+        # mavzular va manbalar KOD tomonidan taqsimlanadi, Methods esa kod
+        # tomonidan haqiqiy qidiruv raqamlaridan quriladi.
+        try:
+            article_text, themes = await structured_writer.write_article_structured(
+                req.topic, found_sources, req.language,
+                journal_profile=profile,
+                search_stats=sources_service.SEARCH_STATS,
+                search_query=search_query,
+                databases=databases,
+                search_date=time.strftime("%Y-%m-%d"),
+            )
+            logger.info("Bo'lim-bo'lim yozildi: %s ta mavzu", len(themes))
+        except Exception:
+            logger.exception("Bo'lim-bo'lim yozish yiqildi — bir so'rovlik usulga qaytamiz")
+            article_text = await gpt_service.write_article(
+                req.topic, found_sources, req.citation_style, req.language, outline=outline,
+                search_query=search_query, databases=databases,
+                journal_profile=profile,
+                search_stats=sources_service.SEARCH_STATS,
+                search_date=time.strftime("%Y-%m-%d"),
+            )
     except Exception:
         logger.exception("Maqola yozishda xato (mavzu=%r)", req.topic)
         raise HTTPException(
