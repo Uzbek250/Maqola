@@ -91,11 +91,63 @@ Fallback: structured writer yiqilsa eski bir-so'rovlik usul ishlaydi.
 
 ---
 
+## YAKUNIY TEKSHIRUV (25 manba, jonli kod)
+
+| Ko'rsatkich | Tanqiddan keyin | Yakuniy |
+|---|---|---|
+| So'z soni | 2079 | **5083** |
+| Manba qamrovi | 22/25 | **25/25** |
+| Taqqoslash iborasi | 5 | **65** |
+| Taqqoslashsiz mavzu bo'limi | — | **0** |
+| Methods bo'limi | yo'q edi | **bor, 6/6 raqam to'g'ri** |
+| Mavzu bo'limlarida manba | 1 ta bo'lardi | **4-7 ta** |
+| Takroriy cheklov ogohlantirishi | ko'p marta | 1-4 marta (qalqon emas) |
+
+Bo'limlar: Introduction, Methods: Search Strategy, 5 mavzu bo'limi, Discussion,
+Limitations and Future Directions, Conclusion — jami **10**.
+
+Methods'dagi haqiqiy raqamlar: sana, bazalar (PubMed), topilgan 50,
+tanlangan 25, "TANLAB OLINGAN (narrative), tizimli emas", "PRISMA
+qo'llanilmagan".
+
+## Qo'shimcha qo'riqchilar (sinovlarda topilgan xatolar)
+
+| Xato | Tuzatish |
+|---|---|
+| Qayta yozish Methods MAZMUNINI almashtirardi (sarlavha qolib, raqamlar yo'qolardi) | `_capture_section`/`_replace_section` — matn qayta yozishdan keyin tiklanadi |
+| Qayta yozish tuzilmani buzardi (Methods/Discussion/Limitations yo'qolardi) | Tuzilma qo'riqchisi — buzilsa qayta yozish RAD ETILADI |
+| Qayta yozish iqtiboslarni kamaytirardi | Iqtibos qamrovi qo'riqchisi (10% dan ko'p yo'qolsa rad) |
+| Mavzu sarlavhalari maqola tilida emas edi | `plan_themes` tilni talab qiladi |
+| GPT so'rovi juda tor (12 so'z, kasalliklar ro'yxati) → 3 natija | Promptda namuna + 8 so'z chegarasi kodda + bosqichma-bosqich kengaytirish |
+| Bo'sh javobda cheksiz rekursiya (`RecursionError`) | `_fallback_themes` endi `_normalize_themes` ni chaqirmaydi |
+| 800 000+ belgilik prompt API'ga sig'masdi | To'liq matn 6000 belgiga qisqartiriladi |
+
+## Modellar
+
+| Vazifa | Model | Holat |
+|---|---|---|
+| Mavzu → inglizcha kalit so'zlar | **GPT** (`gpt-5.6-luna`) | ✅ ko'chirildi |
+| Maqolani yozish | GPT (`gpt-5.6-luna`) | ✅ |
+| Maqolani tekshirish | **`gemini-3.5-flash-lite`** | ✅ eng oxirgi mavjud Flash Lite (API'da sinab tasdiqlandi) |
+| Mavzu generatsiyasi | Gemini (zaxira zanjiri bilan) | ✅ |
+
+**Diqqat:** `gemini-3.6-flash` (standart model) hozir **429 — kvota tugagan**.
+Shuning uchun zaxira ro'yxati ishlaydigan modellardan boshlanadi
+(`gemini-3.5-flash` → `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`).
+`gemini-3.6-flash-lite` va `gemini-3.7-flash-lite` **mavjud emas** (404).
+
+## Foydalanuvchi hisobi
+
+- Frontend birinchi kirishda **bir marta** ism so'raydi (brauzerda saqlanadi).
+- Backend ism bo'yicha so'rovlar sonini yuritadi (diskda saqlanadi).
+- **Frontend'da ko'rinmaydi.**
+- Ko'rish: `GET /usage?key=<MAQOLA_ADMIN_KEY>` — kalit bo'lmasa/xato bo'lsa 404.
+
 ## Hali qilinmagan
 
 1. **Gumanitar soha uchun manba qidiruvi** — Crossref, ochiq repozitoriylar
    (PubMed Navoiy/Bobur bo'yicha hech narsa topmaydi).
-2. **Sintez jumlasini avtomatik tekshirish** — "bu bo'limda taqqoslash yo'q"
-   bo'lsa ogohlantirish (hozir faqat promptda talab).
-3. **Guruhlab yozishni o'lchash** — model baribir ba'zi joyda manbani alohida
-   gapda aytishi mumkin; statistik nazorat kerak.
+2. **Sintez jumlasini avtomatik tekshirish** — hozir faqat promptda talab;
+   bo'lim darajasida "taqqoslash bormi" nazorati yo'q.
+3. **Gemini kvotasi** — 3.6-flash uchun billing kerak (hozir 3.5-flash
+   zaxira ishlaydi, lekin bepul limit maqola soni oshganda yetmasligi mumkin).
