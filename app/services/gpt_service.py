@@ -283,7 +283,16 @@ suitable for searching PubMed.
 
 Rules:
 - Output ONLY the query, nothing else (no explanation, no quotes, no markdown).
-- Use 5-10 core scientific keywords separated by spaces.
+- Use 5-8 core scientific keywords separated by spaces.
+- PREFER GENERAL / SUPERORDINATE terms. Do NOT enumerate several specific
+  diseases, populations or subtopics in one query.
+  WRONG (too specific): "respiratory diseases cellular mechanisms COPD asthma
+  pulmonary fibrosis pulmonary hypertension clinical implications"
+  RIGHT (general):      "respiratory diseases cellular mechanisms pathogenesis
+  inflammation clinical implications"
+  WHY: PubMed combines ALL terms with AND, so a long list of specific terms
+  returns almost no results (the wrong example above returns only 3 records,
+  the right one returns 50+).
 - No full sentences, no question marks, no filler words.
 - Keep it specific enough to stay on topic but broad enough to find papers.
 
@@ -295,6 +304,13 @@ Topic: {topic}"""
             prompt, temperature=0.1, max_tokens=120,
         )
         query = raw.strip().split("\n")[0].strip().strip('"').strip("`").strip()
+        # Kod tomonidan kafolat: so'zlar soni cheklanadi. PubMed hamma so'zni AND
+        # qiladi — 8 tadan ko'p so'z amalda har doim juda kam natija beradi.
+        words = query.split()
+        if len(words) > 8:
+            logger.info("So'rov juda uzun (%s so'z) — %s so'zga qisqartirildi: %r",
+                        len(words), 8, " ".join(words[:8]))
+            query = " ".join(words[:8])
         if query and len(query) < 300:
             logger.info("Mavzu GPT orqali inglizcha so'rovga aylantirildi: %r", query[:120])
             return query

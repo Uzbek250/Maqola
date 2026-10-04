@@ -306,14 +306,33 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         search_query, prefer_medical=prefer_medical, max_results=req.max_sources
     )
 
-    # Topilmasa — yanada kengroq (kamroq kalit so'zli) so'rov bilan bir marta qayta urinamiz
-    if not found_sources:
-        wider = " ".join(search_query.split()[:3])
-        if wider and wider != search_query:
-            logger.info("Manba topilmadi — kengroq so'rov sinaladi: %r", wider)
-            found_sources = await sources_service.find_sources(
-                wider, prefer_medical=prefer_medical, max_results=req.max_sources
-            )
+    # SO'ROVNI BOSQICHMA-BOSQICH KENGAYTIRISH. PubMed barcha so'zlarni AND bilan
+    # birlashtiradi, shuning uchun kalit so'zlar ko'p bo'lsa natija juda kam
+    # bo'lishi mumkin (sinov: 12 so'zli so'rov 3 ta natija, 8 so'zli 50 ta).
+    # Ilgari bu faqat 0 natijada ishlardi — endi kam natijada ham ishlaydi.
+    MIN_SOURCES_TARGET = 12
+    best_sources, best_query = found_sources, search_query
+    words = search_query.split()
+    for cut in (8, 5, 3):
+        if len(best_sources) >= MIN_SOURCES_TARGET or cut >= len(words):
+            continue
+        wider = " ".join(words[:cut])
+        if wider == best_query:
+            continue
+        logger.info("Faqat %s manba topildi — kengroq so'rov sinaladi (%s so'z): %r",
+                    len(best_sources), cut, wider)
+        alt = await sources_service.find_sources(
+            wider, prefer_medical=prefer_medical, max_results=req.max_sources
+        )
+        if len(alt) > len(best_sources):
+            best_sources, best_query = alt, wider
+
+    if best_query != search_query:
+        logger.info("Kengaytirilgan so'rov ishlatildi: %r -> %r (%s manba)",
+                    search_query, best_query, len(best_sources))
+        # Methods bo'limi HAQIQIY ishlatilgan so'rovni ko'rsatishi kerak
+        search_query = best_query
+    found_sources = best_sources
 
     if not found_sources:
         raise HTTPException(
