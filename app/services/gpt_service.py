@@ -568,6 +568,30 @@ ESLATMA: maqola so'z soni {MIN_WORDS} dan kam va {MAX_WORDS} dan ko'p bo'lmaslig
     return await _call_gpt(system_prompt, user_prompt, temperature=0.85, max_tokens=4000)
 
 
+def _format_sources_compact(sources: list[dict]) -> str:
+    """
+    Manbalarning IXCHAM ro'yxati — faqat bibliografik ma'lumot (annotatsiya va
+    to'liq matnsiz).
+
+    Nega: qayta yozish (rewrite_article) bosqichi matnni tuzatadi, uni
+    o'zgartirmaydi — manbalarning to'liq matnini berish shart emas. To'liq
+    matn bilan so'rov 33 805 tokenga chiqib, chaqiruv $0.0144 turardi
+    (maqola narxining 31%). Manba tarkibini bermasak, model yangi fakt
+    qo'sha ham olmaydi — bu xavfsizroq.
+    """
+    lines = []
+    for i, s in enumerate(sources, start=1):
+        no = s.get("_global_no") or i
+        authors = ", ".join(s.get("authors", [])[:3]) or "muallif noma'lum"
+        year = s.get("year") or "y.y."
+        title = (s.get("title") or "")[:180]
+        journal = (s.get("journal") or "")[:60]
+        doi = s.get("doi") or ""
+        doi_txt = f" DOI: {doi}." if doi else ""
+        lines.append(f'[{no}] {authors} ({year}). "{title}". {journal}.{doi_txt}')
+    return "\n".join(lines)
+
+
 async def rewrite_article(
     original_text: str,
     review_feedback: dict,
@@ -580,7 +604,10 @@ async def rewrite_article(
     3-bosqich: Gemini'ning tanqidiy fikri asosida GPT maqolani qayta yozadi.
     """
     lang_name = LANGUAGE_NAMES.get(language, "ingliz")
-    sources_block = _format_sources_for_prompt(sources)
+    # IXCHAM manba ro'yxati — to'liq matn/annotatsiya berilmaydi (xarajat).
+    # Matn allaqachon manbalarga tayangan holda yozilgan; bu bosqich uni
+    # tuzatadi, yangi fakt qo'shmaydi.
+    sources_block = _format_sources_compact(sources)
     banned = _banned_phrases_block(language)
     issues = "\n".join(f"- {p}" for p in review_feedback.get("topilgan_muammolar", []))
     suggestions = "\n".join(f"- {s}" for s in review_feedback.get("tuzatish_tavsiyalari", []))

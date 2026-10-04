@@ -180,7 +180,7 @@ async def _progress(job: dict | None, percent: int, step: str) -> None:
 
 MIN_WORDS = 1800
 MAX_WORDS = 2500
-MAX_REWRITE_ATTEMPTS = 2  # majburiy qayta yozish - 2 martagacha
+MAX_REWRITE_ATTEMPTS = 1  # qayta yozish - 1 marta (o'lchov: har urinish ~$0.015)
 
 # O'zbek jurnali shablonidagi bo'lim nomlari (muallif hujjatlaridagi tartibda)
 UZ_SECTIONS = ["KIRISH", "TADQIQOT METODOLOGIYASI", "NATIJALAR VA MUHOKAMA", "XULOSA"]
@@ -370,7 +370,7 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         ft_stats = {"full_text_count": 0, "abstract_only_count": len(found_sources),
                     "total_chars": 0}
 
-    await _progress(job, 35, "Maqola rejasi tuzilmoqda")
+    await _progress(job, 35, "Manbalar mavzular bo'yicha guruhlanmoqda")
 
     # Uzunlik oralig'i MANBA SONIGA qarab (25 manba -> ~3250 so'z).
     # Nega: 10 ta manba uchun 1800-2500 yetarli edi, lekin 25 manba bilan
@@ -379,11 +379,6 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
     logger.info("So'z oralig'i: %s-%s (manbalar: %s ta)", min_words, max_words, len(found_sources))
 
     try:
-        outline = await gpt_service.generate_outline(
-            req.topic, found_sources, req.language,
-            required_sections=profile.get("required_sections"),
-        )
-
         await _progress(job, 45, "Maqola yozilmoqda")
         # ARXITEKTURA: butun maqolani bitta so'rovda so'rash ISHLAMADI — model
         # qoidalarni e'tiborsiz qoldirdi (10 bo'lim ochdi, 4 tasida 3 dan kam
@@ -402,6 +397,15 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
             logger.info("Bo'lim-bo'lim yozildi: %s ta mavzu", len(themes))
         except Exception:
             logger.exception("Bo'lim-bo'lim yozish yiqildi — bir so'rovlik usulga qaytamiz")
+            # REJA (OUTLINE) SHU YERDA yasaladi — ya'ni faqat zaxira usulga
+            # kerak bo'lganda. Sabab: bo'lim-bo'lim yozish tuzilmani kod
+            # tomonidan o'zi belgilaydi, shuning uchun reja kerak emas.
+            # Ilgari u HAR DOIM chaqirilardi va o'lchangan maqola narxining
+            # ~17% ini bekorga yeb qo'yardi ($0.0099 / $0.0569).
+            outline = await gpt_service.generate_outline(
+                req.topic, found_sources, req.language,
+                required_sections=profile.get("required_sections"),
+            )
             article_text = await gpt_service.write_article(
                 req.topic, found_sources, req.citation_style, req.language, outline=outline,
                 search_query=search_query, databases=databases,
@@ -473,11 +477,17 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
                         len(missing), missing[:5],
                         len(before_cites), len(after_cites), cite_loss,
                     )
+                    # Rad etilgandan keyin QAYTA URINISH MA'NOSIZ: model bir xil
+                    # matnni bir xil ko'rsatma bilan yana buzadi. Har urinish
+                    # ~$0.015 turadi — bekorga sarflanmasin.
+                    break
                 else:
                     if protected_methods:
                         rewritten = _replace_section(rewritten, _METHODS_MARKERS,
                                                      protected_methods)
                     article_text = rewritten
+                    logger.info("Qayta yozish QABUL QILINDI (tuzilma va iqtibos "
+                                "qamrovi saqlandi)")
 
                 review = await gemini_service.review_article(
                     article_text, found_sources, req.language, min_words, max_words
