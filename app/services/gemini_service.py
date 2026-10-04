@@ -2,6 +2,7 @@
 Gemini API: 1) mavzu generatsiyasi  2) yakuniy maqolani QATTIQ tekshirish/tanqid qilish
 """
 import logging
+import os
 
 import httpx
 import json
@@ -11,23 +12,35 @@ logger = logging.getLogger(__name__)
 
 GEMINI_URL_TMPL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-# Google modelni o'chirsa yoki 503 ("high demand") bersa, navbat bilan shular sinaladi.
+# Tekshiruv (review) uchun model. Foydalanuvchi talabi: eng oxirgi Flash Lite.
+# API'da SINAB tekshirildi (generateContent):
+#   gemini-3.5-flash-lite  -> 200 OK   (eng oxirgi mavjud Flash Lite)
+#   gemini-3.6-flash-lite  -> 404 mavjud emas
+#   gemini-3.7-flash-lite  -> 404 mavjud emas
+REVIEW_MODEL = os.getenv("GEMINI_REVIEW_MODEL", "gemini-3.5-flash-lite")
+
+# Zaxira modellar. `gemini-3.6-flash` hozir 429 (kvota tugagan) bo'lgani uchun
+# birinchi o'rinda emas — kvota tiklanganda birinchi model baribir sinaladi.
 FALLBACK_GEMINI_MODELS = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 
 LANGUAGE_NAMES = {"uz": "o'zbek", "en": "ingliz (English)", "ru": "rus (русский)"}
 
 
-async def _call_gemini(prompt: str, temperature: float = 0.7) -> str:
+async def _call_gemini(prompt: str, temperature: float = 0.7, model: str | None = None) -> str:
     """
     Gemini'ni chaqiradi. Model o'chirilgan (404), yuklangan (503) yoki kvota
     tugagan (429) bo'lsa — avtomatik zaxira modelga o'tadi.
+
+    `model` berilsa — o'sha model birinchi sinaladi (masalan tekshiruv uchun
+    flash-lite). Berilmasa GEMINI_MODEL ishlatiladi.
 
     MUHIM: API kalit URL ichida EMAS, `x-goog-api-key` sarlavhasida yuboriladi.
     Ilgari kalit URL'da edi va httpx xatosi matni bilan birga MIJOZGA ochiq
     ko'rinardi (kalit oqib ketardi).
     """
     last_error = None
-    models = [GEMINI_MODEL] + [m for m in FALLBACK_GEMINI_MODELS if m != GEMINI_MODEL]
+    first = model or GEMINI_MODEL
+    models = [first] + [m for m in FALLBACK_GEMINI_MODELS if m != first]
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         for model in models:
@@ -65,7 +78,8 @@ async def _call_gemini(prompt: str, temperature: float = 0.7) -> str:
 
             if text:
                 if model != GEMINI_MODEL:
-                    logger.info("Javob zaxira Gemini modeli orqali olindi: %s", model)
+                    logger.info("Gemini javobi '%s' modeli orqali olindi (standart: %s)",
+                                model, GEMINI_MODEL)
                 return text
 
             logger.warning("Gemini (%s) bo'sh javob qaytardi (finish_reason=%s)",
@@ -94,33 +108,9 @@ FAQAT quyidagi JSON formatida javob ber, boshqa hech narsa yozma (izoh, markdown
         return [line.strip("- ").strip() for line in raw.split("\n") if line.strip()][:10]
 
 
-async def to_search_query(topic: str) -> str:
-    """
-    Mavzuni PubMed/Semantic Scholar uchun QISQA INGLIZCHA kalit so'zlarga aylantiradi.
-
-    Nega kerak: foydalanuvchi mavzuni o'zbek/rus tilida yozadi yoki tanlaydi, lekin
-    ilmiy bazalar (PubMed) faqat inglizcha matnni indekslaydi. Butun o'zbekcha jumla
-    qidiruv so'rovi sifatida yuborilsa — 0 natija qaytadi va /generate 404 beradi.
-    """
-    prompt = f"""Convert the research topic below into a SHORT English keyword query
-suitable for searching PubMed.
-
-Rules:
-- Output ONLY the query, nothing else (no explanation, no quotes, no markdown).
-- Use 5-10 core scientific keywords separated by spaces.
-- No full sentences, no question marks, no filler words.
-- Keep it specific enough to stay on topic but broad enough to find papers.
-
-Topic: {topic}"""
-    try:
-        raw = await _call_gemini(prompt, temperature=0.1)
-        query = raw.strip().split("\n")[0].strip().strip('"').strip("`").strip()
-        if query and len(query) < 300:
-            return query
-        logger.warning("Inglizcha so'rov g'alati chiqdi (%r) — asl mavzu ishlatiladi", raw[:120])
-    except Exception:
-        logger.exception("Mavzuni inglizcha so'rovga aylantirib bo'lmadi")
-    return topic
+# DIQQAT: to_search_query() endi GPT orqali ishlaydi — gpt_service.to_search_query().
+# Gemini'dan ko'chirildi (foydalanuvchi talabi). Gemini faqat mavzu generatsiyasi
+# (generate_topics) va maqolani tekshirish (review_article) uchun qoladi.
 
 
 def _word_count(text: str) -> int:
@@ -190,7 +180,8 @@ FAQAT quyidagi JSON formatida javob ber:
   "umumiy_baho": "qisqa umumiy xulosa"
 }}
 """
-    raw = await _call_gemini(prompt, temperature=0.2)
+    # Tekshiruv eng oxirgi Flash Lite modelida bajariladi (foydalanuvchi talabi).
+    raw = await _call_gemini(prompt, temperature=0.2, model=REVIEW_MODEL)
     raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
         result = json.loads(raw)

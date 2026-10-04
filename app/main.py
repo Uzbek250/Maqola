@@ -6,6 +6,7 @@ import asyncio
 import io
 import logging
 import os
+import re
 import time
 import uuid
 
@@ -63,6 +64,66 @@ USAGE.update(store_service.load_usage())
 def _headings(text: str) -> list[str]:
     """Matndagi ## sarlavhalar ro'yxati (tuzilma qo'riqchisi uchun)."""
     return [ln.strip() for ln in text.splitlines() if ln.strip().startswith("## ")]
+
+
+def _cited_numbers(text: str) -> set[int]:
+    """
+    Matnda iqtibos qilingan manba raqamlari to'plami ([1], [3,5], [7-9]).
+
+    Qayta yozish manbalarga iqtiboslarni kamaytirib qo'yishini aniqlash uchun.
+    """
+    out: set[int] = set()
+    for group in re.findall(r"\[([\d,\s\u2013\u2014-]+)\]", text):
+        for part in re.split(r"[,\s]+", group.strip()):
+            if not part:
+                continue
+            rng = re.match(r"^(\d+)[\u2013\u2014-](\d+)$", part)
+            if rng:
+                a, b = int(rng.group(1)), int(rng.group(2))
+                if 0 < a <= b <= 999:
+                    out.update(range(a, b + 1))
+            elif part.isdigit():
+                out.add(int(part))
+    return out
+
+
+# Metodologiya bo'limini turli tillarda topish uchun belgilar
+_METHODS_MARKERS = ("method", "metodolog", "методолог")
+
+
+def _section_span(text: str, markers: tuple[str, ...]) -> tuple[int, int, str] | None:
+    """Sarlavhasi `markers` dan birini o'z ichiga olgan bo'lim oralig'i."""
+    lines = text.splitlines()
+    start = None
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if s.startswith("## "):
+            if start is not None:
+                return start, i, lines[start]
+            if any(m in s.lower() for m in markers):
+                start = i
+    if start is not None:
+        return start, len(lines), lines[start]
+    return None
+
+
+def _capture_section(text: str, markers: tuple[str, ...]) -> str | None:
+    """Bo'limning to'liq matni (sarlavha bilan)."""
+    span = _section_span(text, markers)
+    if not span:
+        return None
+    a, b, _ = span
+    return "\n".join(text.splitlines()[a:b]).strip()
+
+
+def _replace_section(text: str, markers: tuple[str, ...], replacement: str) -> str:
+    """Bo'limni `replacement` bilan almashtiradi; bo'lmasa oxiriga qo'shadi."""
+    span = _section_span(text, markers)
+    lines = text.splitlines()
+    if not span:
+        return text + "\n\n" + replacement
+    a, b, _ = span
+    return "\n".join(lines[:a] + replacement.splitlines() + lines[b:])
 
 
 def _record_usage(user_name: str, topic: str, template: str, journal: str) -> dict:
@@ -215,7 +276,9 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
     # Mavzu o'zbek/rus tilida bo'lishi mumkin, lekin PubMed faqat inglizchani indekslaydi.
     # Shuning uchun avval mavzuni inglizcha kalit so'zlarga aylantiramiz — aks holda
     # butun o'zbekcha jumla qidirilib, 0 natija qaytadi.
-    search_query = await gemini_service.to_search_query(req.topic)
+    # Mavzuni inglizcha kalit so'zlarga aylantirish — GPT orqali (foydalanuvchi
+    # talabi; ilgari Gemini edi).
+    search_query = await gpt_service.to_search_query(req.topic)
     logger.info("Qidiruv so'rovi: %r -> %r", req.topic[:80], search_query)
 
     await _progress(job, 15, "Ilmiy manbalar qidirilmoqda")
@@ -352,6 +415,14 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
                             f"Qayta yozilmoqda ({rewrite_count + 1}/{MAX_REWRITE_ATTEMPTS})")
             try:
                 before_headings = _headings(article_text)
+                # Methods bo'limi KOD tomonidan haqiqiy qidiruv raqamlaridan
+                # quriladi (structured_writer.build_methods_section). Umumiy
+                # "qayta yozish" uning MAZMUNINI almashtirib, haqiqiy
+                # raqamlarni yo'qotardi (sarlavha qolib, ichi umumiy matn
+                # bo'lib qolgan edi). Shuning uchun mazmun saqlanadi va
+                # qayta yozishdan keyin QAYTA TIKLANADI.
+                protected_methods = _capture_section(article_text, _METHODS_MARKERS)
+
                 rewritten = await gpt_service.rewrite_article(
                     article_text, review, found_sources, req.language,
                     min_words=min_words, max_words=max_words,
@@ -359,21 +430,34 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
                 after_headings = _headings(rewritten)
                 missing = [h for h in before_headings if h not in after_headings]
 
-                if missing:
-                    # TUZILMA QO'RIQCHISI. Bo'limlar soni, Methods bo'limi va
-                    # har bir bo'limdagi manba soni KOD tomonidan kafolatlangan
-                    # (structured_writer). Umumiy "qayta yozish" ko'rsatmasi
-                    # butun matnni qaytadan yozadi va bu kafolatni buzadi —
-                    # sinovda Methods, Discussion va Limitations bo'limlari
-                    # butunlay yo'qolgan edi.
-                    # Shu sababli: tuzilma buzilsa qayta yozish RAD ETILADI,
-                    # oldingi (strukturasi to'g'ri) matn saqlanadi.
+                # Iqtibos qamrovi qo'riqchisi: qayta yozish manbalarga
+                # iqtiboslarni kamaytirib qo'ymasin (maqsad — barcha manbalar
+                # ishlatilishi). 10% dan ko'p yo'qolsa — rad etiladi.
+                before_cites = _cited_numbers(article_text)
+                after_cites = _cited_numbers(rewritten)
+                cite_loss = len(before_cites) - len(after_cites)
+                cite_regression = before_cites and len(after_cites) < len(before_cites) * 0.9
+
+                if missing or cite_regression:
+                    # TUZILMA/IQTIBOS QO'RIQCHISI. Bo'limlar soni, Methods
+                    # bo'limi va har bir bo'limdagi manba soni KOD tomonidan
+                    # kafolatlangan (structured_writer). Umumiy "qayta yozish"
+                    # ko'rsatmasi butun matnni qaytadan yozadi va bu kafolatni
+                    # buzadi — sinovda Methods, Discussion va Limitations
+                    # bo'limlari butunlay yo'qolgan edi.
+                    # Shu sababli: kafolat buzilsa qayta yozish RAD ETILADI,
+                    # oldingi (to'g'ri) matn saqlanadi.
                     logger.warning(
-                        "Qayta yozish tuzilmani buzdi — %s bo'lim yo'qoldi (%s). "
-                        "Qayta yozish rad etildi, oldingi matn saqlanadi.",
+                        "Qayta yozish rad etildi — yo'qolgan bo'lim: %s (%s); "
+                        "iqtibos qamrovi: %s -> %s (%s ta kamaydi). "
+                        "Oldingi matn saqlanadi.",
                         len(missing), missing[:5],
+                        len(before_cites), len(after_cites), cite_loss,
                     )
                 else:
+                    if protected_methods:
+                        rewritten = _replace_section(rewritten, _METHODS_MARKERS,
+                                                     protected_methods)
                     article_text = rewritten
 
                 review = await gemini_service.review_article(

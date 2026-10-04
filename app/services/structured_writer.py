@@ -214,6 +214,7 @@ async def plan_themes(topic: str, sources: list[dict], language: str = "en") -> 
         f"[{i}] {(s.get('title') or '')[:150]} | {(s.get('journal') or '')[:50]} | {(s.get('pub_date') or '')[:4]}"
         for i, s in enumerate(sources, 1)
     )
+    lang_name = LANG_NAMES.get(language, "ingliz")
     system_prompt = (
         "Sen ilmiy muharrirsan. Manbalarni mavzular bo'yicha guruhlaysan. "
         "Faqat JSON qaytarasan, boshqa matn yo'q."
@@ -232,6 +233,7 @@ QOIDALAR:
   {MIN_SOURCES_PER_THEME}-{MAX_THEMES} ta chuqur mavzu yaxshi.
 - Har bir manba kamida bitta mavzuda bo'lsin.
 - Mavzu nomi qisqa va aniq bo'lsin (ilmiy, 3-8 so'z).
+- MAVZU NOMLARI {lang_name.upper()} TILIDA bo'lsin (maqola shu tilda yoziladi).
 
 Faqat shu JSON formatda qaytar:
 {{"themes": [{{"title": "mavzu nomi", "sources": [1, 5, 9, 14]}}, ...]}}"""

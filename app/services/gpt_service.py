@@ -266,6 +266,44 @@ def word_range(source_count: int, journal_profile: dict | None = None) -> tuple[
     return int(lo), int(hi)
 
 
+async def to_search_query(topic: str) -> str:
+    """
+    Mavzuni PubMed/Semantic Scholar uchun QISQA INGLIZCHA kalit so'zlarga aylantiradi.
+
+    Nega kerak: foydalanuvchi mavzuni o'zbek/rus tilida yozadi yoki tanlaydi, lekin
+    ilmiy bazalar (PubMed) faqat inglizcha matnni indekslaydi. Butun o'zbekcha jumla
+    qidiruv so'rovi sifatida yuborilsa — 0 natija qaytadi va /generate 404 beradi.
+
+    DIQQAT: ilgari bu Gemini orqali bajarilardi (gemini_service.to_search_query).
+    Foydalanuvchi talabiga ko'ra GPT'ga ko'chirildi — Gemini faqat mavzu
+    generatsiyasi va maqolani tekshirish uchun qoladi.
+    """
+    prompt = f"""Convert the research topic below into a SHORT English keyword query
+suitable for searching PubMed.
+
+Rules:
+- Output ONLY the query, nothing else (no explanation, no quotes, no markdown).
+- Use 5-10 core scientific keywords separated by spaces.
+- No full sentences, no question marks, no filler words.
+- Keep it specific enough to stay on topic but broad enough to find papers.
+
+Topic: {topic}"""
+    try:
+        raw = await _call_gpt(
+            "You convert research topics into short PubMed keyword queries. "
+            "Output only the query.",
+            prompt, temperature=0.1, max_tokens=120,
+        )
+        query = raw.strip().split("\n")[0].strip().strip('"').strip("`").strip()
+        if query and len(query) < 300:
+            logger.info("Mavzu GPT orqali inglizcha so'rovga aylantirildi: %r", query[:120])
+            return query
+        logger.warning("Inglizcha so'rov g'alati chiqdi (%r) — asl mavzu ishlatiladi", raw[:120])
+    except Exception:
+        logger.exception("Mavzuni inglizcha so'rovga aylantirib bo'lmadi (GPT)")
+    return topic
+
+
 async def generate_outline(topic: str, sources: list[dict], language: str = "en",
                            required_sections: list[str] | None = None) -> str:
     """
