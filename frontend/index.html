@@ -26,11 +26,11 @@ body{
 }
 .wrap{max-width:760px;margin:0 auto;padding:max(14px,env(safe-area-inset-top)) 18px calc(100px + env(safe-area-inset-bottom))}
 h1,h2,.art,.title{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;font-weight:700}
-header.top{display:flex;align-items:center;gap:10px;padding:6px 0 20px;font-weight:700;font-size:19px}
-header.top svg{width:30px;height:30px;flex:none}
-header.top .brand{display:flex;align-items:baseline;gap:8px;min-width:0}
-header.top small{font-weight:400;font-size:13px;color:var(--mut)}
-header.top .right{margin-left:auto;display:flex;gap:8px;align-items:center;flex:none}
+header.hdr{display:flex;align-items:center;gap:10px;padding:6px 0 20px;font-weight:700;font-size:19px}
+header.hdr svg{width:30px;height:30px;flex:none}
+header.hdr .brand{display:flex;align-items:baseline;gap:8px;min-width:0}
+header.hdr small{font-weight:400;font-size:13px;color:var(--mut)}
+header.hdr .right{margin-left:auto;display:flex;gap:8px;align-items:center;flex:none}
 h1{font-size:clamp(34px,9vw,52px);line-height:1.06;letter-spacing:-.8px;margin:8px 0 14px}
 h1 em{font-style:normal;color:var(--acc);padding:0 3px;background:linear-gradient(var(--acc-t),var(--acc-t)) 0 90%/100% 46% no-repeat;animation:hl .8s .3s ease backwards}
 @keyframes hl{from{background-size:0 46%}}
@@ -150,7 +150,7 @@ button{font:inherit;cursor:pointer;color:inherit}
 <body>
 <div class="wrap">
 
-<header class="top">
+<header class="hdr">
   <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" style="fill:var(--acc)"/><path d="M9 17l5 5 9-11" style="stroke:var(--on)" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
   <span class="brand"><span>Dalil</span><small>manbali maqola</small></span>
 </header>
