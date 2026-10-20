@@ -601,7 +601,16 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         "word_count": word_count,
         "rewrite_attempts": rewrite_count,
         "sources": [
-            {"title": s["title"], "year": s["year"], "citation_count": s.get("citation_count"), "url": s["url"]}
+            {
+                "title": s["title"],
+                "authors": s.get("authors") or [],
+                "journal": s.get("journal") or "",
+                "year": s["year"],
+                "doi": s.get("doi") or "",
+                "doi_verified": s.get("doi_verified"),
+                "citation_count": s.get("citation_count"),
+                "url": s["url"],
+            }
             for s in found_sources
         ],
         "review_summary": review,
