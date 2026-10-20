@@ -25,6 +25,7 @@ SEARCH_STATS: dict = {}
 PUBMED_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 PUBMED_FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+CROSSREF_URL = "https://api.crossref.org/works"
 
 MIN_ABSTRACT_LENGTH = 200  # bundan qisqa abstract AI uchun deyarli foydasiz
 RECENCY_YEARS = 6  # shundan eski maqolalar "eskirgan" deb hisoblanadi (chiqarilmaydi, faqat pastroq saralanadi)
@@ -250,6 +251,11 @@ def _quality_score(source: dict) -> float:
     if citations is not None and citations > 0:
         score += math.log10(citations + 1) * 3
 
+    # Abstract'i bor manba AI uchun ancha foydali (undan sintеz qilinadi).
+    # Crossref manbalarida abstract ko'p hollarda bo'lmaydi — ular oxirida qolsin.
+    if len(source.get("abstract") or "") >= MIN_ABSTRACT_LENGTH:
+        score += 4
+
     return score
 
 
@@ -394,6 +400,74 @@ async def validate_dois(sources: list[dict], timeout: float = 25.0) -> list[dict
     return sources
 
 
+async def search_crossref(query: str, max_results: int = 15) -> list[dict]:
+    """
+    Crossref qidiruvi — BARCHA sohalar (tibbiyot, pedagogika, iqtisod, huquq...).
+    Kalit talab qilmaydi.
+
+    Nega kerak: PubMed faqat biomeditsina indeksiga ega, Semantic Scholar esa
+    kalitsiz 429 beradi. Ilgari nomedikal mavzular butunlay ishlamay qolardi.
+    """
+    if max_results <= 0:
+        return []
+
+    params = {
+        "query": query,
+        "rows": min(max_results * 2, 100),
+        "filter": "type:journal-article",
+        "select": "title,author,container-title,issued,DOI,is-referenced-by-count,URL,abstract",
+        "mailto": NCBI_EMAIL,
+    }
+    headers = {"User-Agent": f"Maqola/1.0 (mailto:{NCBI_EMAIL})"}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(CROSSREF_URL, params=params, headers=headers)
+        resp.raise_for_status()
+        items = ((resp.json().get("message") or {}).get("items")) or []
+
+    out: list[dict] = []
+    for it in items:
+        titles = it.get("title") or []
+        title = (titles[0] if titles else "").strip()
+        if not title:
+            continue
+
+        abstract = it.get("abstract") or ""
+        if abstract:
+            abstract = re.sub(r"<[^>]+>", " ", abstract)
+            abstract = re.sub(r"\s+", " ", abstract).strip()
+
+        authors = []
+        for a in it.get("author") or []:
+            name = " ".join(p for p in [a.get("given"), a.get("family")] if p).strip()
+            if not name and a.get("name"):
+                name = a.get("name")
+            if name:
+                authors.append(name)
+
+        year = ""
+        parts = (it.get("issued") or {}).get("date-parts") or []
+        if parts and parts[0] and parts[0][0]:
+            year = str(parts[0][0])
+
+        doi = it.get("DOI") or ""
+        out.append({
+            "title": title,
+            "abstract": abstract,
+            "authors": authors,
+            "journal": (it.get("container-title") or [""])[0] if it.get("container-title") else "",
+            "year": year,
+            "doi": doi,
+            "citation_count": it.get("is-referenced-by-count"),
+            "url": it.get("URL") or (f"https://doi.org/{doi}" if doi else ""),
+        })
+
+    # Abstract'i bor manbalar ustuvor — AI ularni to'liqroq ishlata oladi
+    out.sort(key=lambda s: (len(s["abstract"]) >= MIN_ABSTRACT_LENGTH,
+                            s.get("citation_count") or 0), reverse=True)
+    return out[:max_results]
+
+
 async def find_sources(
     query: str,
     prefer_medical: bool = True,
@@ -412,13 +486,15 @@ async def find_sources(
     results = []
     per_db = {}
 
-    if prefer_medical:
-        try:
-            results = await search_pubmed(query, raw_pool_size)
-            per_db["PubMed"] = len(results)
-        except Exception as e:
-            logger.warning("PubMed xatosi: %s", e)
-            per_db["PubMed"] = 0
+    # PubMed HAR DOIM so'raladi. Ilgari `prefer_medical=False` bo'lsa u butunlay
+    # o'tkazib yuborilardi; Semantic Scholar esa kalitsiz 429 beradi — natijada
+    # nomedikal mavzular 0 manba bilan yiqilardi ("manba topilmadi").
+    try:
+        results = await search_pubmed(query, raw_pool_size)
+        per_db["PubMed"] = len(results)
+    except Exception as e:
+        logger.warning("PubMed xatosi: %s", e)
+        per_db["PubMed"] = 0
 
     if len(results) < raw_pool_size:
         try:
@@ -427,6 +503,15 @@ async def find_sources(
             per_db["Semantic Scholar"] = len(extra)
         except Exception as e:
             logger.warning("Semantic Scholar xatosi: %s", e)
+
+    # Crossref — barcha sohalarni qamraydi va kalit talab qilmaydi
+    if len(results) < raw_pool_size:
+        try:
+            extra = await search_crossref(query, raw_pool_size - len(results))
+            results.extend(extra)
+            per_db["Crossref"] = len(extra)
+        except Exception as e:
+            logger.warning("Crossref xatosi: %s", e)
 
     retrieved_raw = len(results)
 
