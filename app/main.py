@@ -190,6 +190,13 @@ class TopicRequest(BaseModel):
     direction: str
 
 
+class SourcesRequest(BaseModel):
+    """Faqat adabiyot qidiruvi — maqola yozilmaydi."""
+    topic: str
+    max_sources: int = 25
+    year_from: int | None = None
+
+
 class GenerateRequest(BaseModel):
     topic: str
     is_medical: bool = True
@@ -249,6 +256,82 @@ async def get_topics(req: TopicRequest):
             status_code=502,
             detail="AI xizmatiga ulanib bo'lmadi. Bir ozdan keyin qayta urinib ko'ring.",
         )
+
+
+@app.post("/sources")
+async def find_literature(req: SourcesRequest):
+    """
+    Adabiyot qidiruvi: mavzu -> haqiqiy ilmiy manbalar ro'yxati.
+
+    Maqola yozilmaydi — GPT faqat qidiruv so'rovini tayyorlaydi (1 arzon chaqiruv).
+    Manbalar PubMed + Crossref'dan olinadi va DOI'lari tekshiriladi.
+    """
+    topic = (req.topic or "").strip()
+    if len(topic) < 4:
+        raise HTTPException(status_code=400, detail="Mavzuni yozing (kamida 4 belgi).")
+
+    limit = max(5, min(int(req.max_sources or 25), 50))
+
+    # Mavzuni inglizcha kalit so'zlarga aylantiramiz (bazalar inglizchani indekslaydi)
+    try:
+        search_query = await gpt_service.to_search_query(topic)
+    except Exception:
+        logger.exception("Qidiruv so'rovini tayyorlab bo'lmadi")
+        search_query = topic
+
+    found = await sources_service.find_sources(search_query, prefer_medical=True, max_results=limit)
+
+    # Kam natijada so'rovni kengaytiramiz
+    words = search_query.split()
+    for cut in (8, 5, 3):
+        if len(found) >= min(limit, 12) or cut >= len(words):
+            continue
+        wider = " ".join(words[:cut])
+        if wider == search_query:
+            continue
+        alt = await sources_service.find_sources(wider, prefer_medical=True, max_results=limit)
+        if len(alt) > len(found):
+            found, search_query = alt, wider
+
+    if not found:
+        raise HTTPException(
+            status_code=404,
+            detail="Bu mavzu bo'yicha manba topilmadi. Mavzuni umumiyroq yozib ko'ring.",
+        )
+
+    try:
+        found = await sources_service.backfill_missing_dois(found)
+        found = await sources_service.validate_dois(found)
+    except Exception:
+        logger.exception("DOI tekshiruvi ishlamadi — natija tekshirilmasdan qaytadi")
+
+    if req.year_from:
+        filtered = [s for s in found
+                    if str(s.get("year") or "").isdigit() and int(s["year"]) >= req.year_from]
+        if filtered:
+            found = filtered
+
+    return {
+        "topic": topic,
+        "query": search_query,
+        "count": len(found),
+        "stats": sources_service.SEARCH_STATS,
+        "sources": [
+            {
+                "title": s.get("title") or "",
+                "authors": s.get("authors") or [],
+                "journal": s.get("journal") or "",
+                "year": s.get("year") or "",
+                "doi": s.get("doi") or "",
+                "doi_verified": s.get("doi_verified"),
+                "citation_count": s.get("citation_count"),
+                "url": s.get("url") or "",
+                "db": s.get("db") or "",
+                "abstract": (s.get("abstract") or "")[:700],
+            }
+            for s in found
+        ],
+    }
 
 
 async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:

@@ -68,6 +68,20 @@ button{font:inherit;cursor:pointer;color:inherit}
 .trust{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:20px}
 .trust div{border:1px solid var(--line);border-radius:16px;padding:13px;font-size:13.5px;color:var(--mut)}
 .trust b{display:block;color:var(--ink);font-size:15px;margin-bottom:2px}
+/* rejim tanlash */
+.modes{display:flex;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:14px}
+.modes button{flex:1;border:0;background:none;padding:9px 8px;border-radius:9px;font-size:14px;font-weight:600;color:var(--mut);transition:background .15s,color .15s}
+.modes button[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.litopts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.litopts label{display:block;font-size:12.5px;color:var(--mut);margin-bottom:4px}
+.litopts select,.litopts input{width:100%;font:inherit;font-size:15px;padding:11px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:inherit}
+.exports{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.exports button{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:9px 14px;font-size:13.5px;font-weight:600;color:var(--acc)}
+.exports button:hover{border-color:var(--acc);background:var(--acc-t)}
+.abs{margin-top:9px;font-size:13.5px;color:var(--mut);line-height:1.55;display:none}
+.src.open .abs{display:block}
+.more{background:none;border:0;color:var(--acc);font-size:13px;padding:0;margin-top:7px;font-weight:600}
+.more:hover{text-decoration:underline}
 /* progress */
 .bar{height:7px;border-radius:9px;background:var(--line);overflow:hidden;margin:14px 0 6px}
 .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),#3fae84);transition:width .6s ease;border-radius:9px}
@@ -161,9 +175,19 @@ button{font:inherit;cursor:pointer;color:inherit}
   <p class="sub">Mavzuni yozing. Tizim haqiqiy ilmiy manbalarni topadi, ularni tekshiradi va maqolani aynan shu manbalarga tayanib yozadi.</p>
 
   <div class="box">
+    <div class="modes" id="modes" role="tablist" aria-label="Rejim">
+      <button role="tab" aria-selected="true"  data-mode="article">Maqola yozish</button>
+      <button role="tab" aria-selected="false" data-mode="lit">Manbalar qidirish</button>
+    </div>
+
+    <div class="litopts" id="litOpts" style="display:none">
+      <div><label for="litMax">Manbalar soni</label><select id="litMax"><option>10</option><option selected>25</option><option>50</option></select></div>
+      <div><label for="litYear">Shu yildan boshlab</label><input id="litYear" type="number" inputmode="numeric" min="1950" max="2030" placeholder="masalan 2020"></div>
+    </div>
+
     <div class="ask">
       <input id="topic" placeholder="Maqola mavzusi…" enterkeyhint="go" autocomplete="off" aria-label="Maqola mavzusi">
-      <button class="go" id="gobtn">Maqola yaratish <span aria-hidden="true">→</span></button>
+      <button class="go" id="gobtn"><span id="goLabel">Maqola yaratish</span> <span aria-hidden="true">→</span></button>
     </div>
     <div class="chips" id="chips" role="list"></div>
     <div class="row">
@@ -206,6 +230,15 @@ button{font:inherit;cursor:pointer;color:inherit}
     <p class="mut" id="progNote">Sahifani yopmang — natija shu yerda chiqadi.</p>
     <button class="cancel" id="cancelBtn">Bekor qilish</button>
   </div>
+</section>
+
+<!-- ================= ADABIYOT NATIJASI ================= -->
+<section id="lit" style="display:none">
+  <div class="top"><button class="link" id="litBack">← Yangi qidiruv</button></div>
+  <h2 class="title" id="litTitle">Manbalar</h2>
+  <div class="chips-meta" id="litMeta"></div>
+  <div class="exports" id="litExports"></div>
+  <div id="litList"></div>
 </section>
 
 <!-- ================= RESULT ================= -->
@@ -295,10 +328,24 @@ let running = false;
 let pollTimer = null;
 let cancelFlag = false;
 let lastJob = null;
+let mode = "article";
+let LIT = [];
+
+/* ---------------- rejim ---------------- */
+function setMode(m){
+  mode = m;
+  const lit = m === "lit";
+  [...$("modes").children].forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === m)));
+  $("litOpts").style.display = lit ? "grid" : "none";
+  $("settings").style.display = lit ? "none" : "";
+  $("topic").placeholder = lit ? "Mavzu (masalan: Aral Sea climate change)" : "Maqola mavzusi…";
+  $("goLabel").textContent = lit ? "Manbalarni topish" : "Maqola yaratish";
+  $("err").textContent = "";
+}
 
 /* ---------------- ko'rinish ---------------- */
 function show(v){
-  ["hero","prog","res"].forEach(x => { $(x).style.display = x === v ? "block" : "none"; });
+  ["hero","prog","res","lit"].forEach(x => { $(x).style.display = x === v ? "block" : "none"; });
   $("dl").classList.toggle("on", v === "res");
   window.scrollTo(0, 0);
 }
@@ -643,6 +690,143 @@ function render(d){
   selectTab("a");
 }
 
+/* ---------------- adabiyot qidiruvi ---------------- */
+async function goLit(){
+  if (running) return;
+
+  const topic = $("topic").value.trim();
+  if (topic.length < 4){
+    $("err").textContent = "Mavzuni yozing (kamida 4 belgi).";
+    $("topic").focus();
+    return;
+  }
+
+  running = true;
+  $("gobtn").disabled = true;
+  $("err").textContent = "";
+  $("goLabel").textContent = "Qidirilmoqda…";
+
+  const year = $("litYear").value.trim();
+  try {
+    const r = await fetch(API + "/sources", {
+      method: "POST", headers: H,
+      body: JSON.stringify({
+        topic: topic,
+        max_sources: +$("litMax").value,
+        year_from: year ? +year : null
+      })
+    });
+    if (!r.ok){
+      const e = await r.json().catch(() => ({}));
+      throw new Error(typeof e.detail === "string" ? e.detail : "Server xatosi (" + r.status + ")");
+    }
+    renderLit(await r.json());
+    show("lit");
+  } catch (e){
+    $("err").textContent = "Xato: " + e.message;
+  } finally {
+    running = false;
+    $("gobtn").disabled = false;
+    $("goLabel").textContent = mode === "lit" ? "Manbalarni topish" : "Maqola yaratish";
+  }
+}
+
+function litCard(s, n){
+  const authors = Array.isArray(s.authors) ? s.authors.join(", ") : (s.authors || "");
+  const meta = [authors, s.journal, s.year].filter(Boolean).join(" · ");
+  const cites = s.citation_count != null ? " · " + s.citation_count + " iqtibos" : "";
+
+  let badge = "";
+  if ("doi_verified" in s){
+    if (s.doi_verified === true) badge = `<span class="bd ok">✓ DOI tasdiqlangan</span>`;
+    else if (s.doi_verified === false) badge = `<span class="bd no">DOI topilmadi</span>`;
+    else if (!s.doi) badge = `<span class="bd no">DOI yo'q</span>`;
+    else badge = `<span class="bd un">DOI tekshirilmadi</span>`;
+  }
+  const db = s.db ? `<span class="tag" style="font-size:11.5px">${esc(s.db)}</span>` : "";
+  const doi = s.doi ? `<a href="https://doi.org/${encodeURI(s.doi)}" target="_blank" rel="noopener">DOI ↗</a>` : "";
+  const url = /^https?:\/\//.test(s.url || "") ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">Manba ↗</a>` : "";
+  const copy = `<button class="copy" type="button" data-lit="${n}">Nusxalash</button>`;
+  const abs = s.abstract
+    ? `<div class="abs">${esc(s.abstract)}</div><button class="more" type="button">Batafsil ▾</button>`
+    : "";
+
+  return `<div class="src"><h5>[${n}] ${esc(s.title)}</h5>
+    <small>${esc(meta)}${esc(cites)}</small>
+    <div class="acts">${db}${badge}${doi}${url}${copy}</div>${abs}</div>`;
+}
+
+function renderLit(d){
+  LIT = d.sources || [];
+  $("litTitle").textContent = d.count + " ta manba topildi";
+
+  const per = (d.stats || {}).per_database || {};
+  const tags = [`<span class="tag j">${esc(d.query)}</span>`].concat(
+    Object.entries(per).filter(([, n]) => n).map(([k, n]) => `<span class="tag">${esc(k)}: ${n}</span>`)
+  );
+  $("litMeta").innerHTML = tags.join("");
+
+  $("litList").innerHTML = LIT.length
+    ? LIT.map((s, i) => litCard(s, i + 1)).join("")
+    : `<div class="empty">Manba topilmadi.</div>`;
+
+  $("litExports").innerHTML = LIT.length
+    ? `<button type="button" id="expCsv">⬇ CSV</button>
+       <button type="button" id="expBib">⬇ BibTeX</button>
+       <button type="button" id="expCopy">📋 Havolalar</button>`
+    : "";
+
+  if ($("expCsv")) $("expCsv").onclick = exportCsv;
+  if ($("expBib")) $("expBib").onclick = exportBib;
+  if ($("expCopy")) $("expCopy").onclick = async () => {
+    const txt = LIT.map(s => (s.doi ? "https://doi.org/" + s.doi : s.url)).filter(Boolean).join("\n");
+    try { await navigator.clipboard.writeText(txt); $("expCopy").textContent = "✓ Nusxalandi"; }
+    catch (err) { $("expCopy").textContent = "Nusxalanmadi"; }
+    setTimeout(() => { $("expCopy").textContent = "📋 Havolalar"; }, 1800);
+  };
+}
+
+function download(text, name, mime){
+  const blob = new Blob([text], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2500);
+}
+
+function exportCsv(){
+  const cols = [["title","Sarlavha"],["authors","Mualliflar"],["journal","Jurnal"],
+                ["year","Yil"],["doi","DOI"],["citation_count","Iqtibos"],["db","Baza"],["url","Havola"]];
+  const rows = [cols.map(c => c[1])];
+  LIT.forEach(s => rows.push(cols.map(([k]) => {
+    let v = s[k];
+    if (Array.isArray(v)) v = v.join("; ");
+    return String(v ?? "");
+  })));
+  const csv = "\ufeff" + rows.map(r => r.map(x => `"${x.replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  download(csv, "manbalar.csv", "text/csv;charset=utf-8");
+}
+
+function exportBib(){
+  const bib = LIT.map((s, i) => {
+    const first = Array.isArray(s.authors) && s.authors.length ? s.authors[0] : "ref";
+    const key = (String(first).split(" ").pop() || "ref").replace(/\W/g, "") + (s.year || "") + "_" + (i + 1);
+    const fields = [
+      ["title", s.title],
+      ["author", Array.isArray(s.authors) ? s.authors.join(" and ") : s.authors],
+      ["journal", s.journal],
+      ["year", s.year],
+      ["doi", s.doi],
+      ["url", s.url]
+    ].filter(([, v]) => v).map(([k, v]) => `  ${k} = {${String(v).replace(/[{}]/g, "")}}`).join(",\n");
+    return `@article{${key},\n${fields}\n}`;
+  }).join("\n\n");
+  download(bib, "manbalar.bib", "application/x-bibtex;charset=utf-8");
+}
+
 /* ---------------- tablar ---------------- */
 function selectTab(k){
   [...$("tabs").children].forEach(b => b.setAttribute("aria-selected", String(b.dataset.t === k)));
@@ -669,10 +853,38 @@ function loadSettings(){
 }
 
 /* ---------------- hodisalar ---------------- */
-$("gobtn").onclick = go;
+function start(){ mode === "lit" ? goLit() : go(); }
+
+$("gobtn").onclick = start;
 
 $("topic").addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); go(); }
+  if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); start(); }
+});
+
+$("modes").addEventListener("click", e => {
+  const b = e.target.closest("button[data-mode]");
+  if (b) setMode(b.dataset.mode);
+});
+
+$("litBack").onclick = () => show("hero");
+
+$("litList").addEventListener("click", async e => {
+  const more = e.target.closest(".more");
+  if (more){
+    const card = more.closest(".src");
+    card.classList.toggle("open");
+    more.textContent = card.classList.contains("open") ? "Yopish ▴" : "Batafsil ▾";
+    return;
+  }
+  const cp = e.target.closest("[data-lit]");
+  if (!cp) return;
+  const s = LIT[(+cp.dataset.lit) - 1];
+  if (!s) return;
+  const authors = Array.isArray(s.authors) ? s.authors.join(", ") : (s.authors || "");
+  const txt = [authors, s.title, s.journal, s.year, s.doi ? "doi:" + s.doi : ""].filter(Boolean).join(". ");
+  try { await navigator.clipboard.writeText(txt); cp.textContent = "✓ Nusxalandi"; }
+  catch (err){ cp.textContent = "Nusxalanmadi"; }
+  setTimeout(() => { cp.textContent = "Nusxalash"; }, 1800);
 });
 
 $("chips").addEventListener("click", e => {

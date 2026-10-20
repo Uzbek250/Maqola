@@ -183,6 +183,7 @@ def _parse_pubmed_xml(xml_text: str) -> list[dict]:
                     "pmc_id": pmc_id,
                     "citation_count": None,  # PubMed bu ma'lumotni bermaydi
                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                    "db": "PubMed",
                 })
         except Exception:
             continue
@@ -225,6 +226,7 @@ async def search_semantic_scholar(query: str, max_results: int = 15) -> list[dic
                 "doi": paper.get("externalIds", {}).get("DOI", ""),
                 "citation_count": paper.get("citationCount"),
                 "url": paper.get("url", ""),
+                "db": "Semantic Scholar",
             })
         return results
 
@@ -460,6 +462,7 @@ async def search_crossref(query: str, max_results: int = 15) -> list[dict]:
             "doi": doi,
             "citation_count": it.get("is-referenced-by-count"),
             "url": it.get("URL") or (f"https://doi.org/{doi}" if doi else ""),
+            "db": "Crossref",
         })
 
     # Abstract'i bor manbalar ustuvor — AI ularni to'liqroq ishlata oladi
