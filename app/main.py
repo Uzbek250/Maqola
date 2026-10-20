@@ -185,6 +185,14 @@ MAX_REWRITE_ATTEMPTS = 1  # qayta yozish - 1 marta (o'lchov: har urinish ~$0.015
 # O'zbek jurnali shablonidagi bo'lim nomlari (muallif hujjatlaridagi tartibda)
 UZ_SECTIONS = ["KIRISH", "TADQIQOT METODOLOGIYASI", "NATIJALAR VA MUHOKAMA", "XULOSA"]
 
+# Adabiyot qidiruvida mavzu tibbiy yoki yo'qligini aniqlash uchun
+_MED_RE = re.compile(
+    r"(tibb|kasal|klinik|davola|dori|vitamin|saraton|yurak|diabet|immun|virus|"
+    r"vaksin|bemor|disease|clinical|cancer|therap|patient|medic|health|cardio|"
+    r"vaccin|медиц|болезн|лечен|здоровь|пациент|диабет)",
+    re.IGNORECASE,
+)
+
 
 class TopicRequest(BaseModel):
     direction: str
@@ -195,6 +203,7 @@ class SourcesRequest(BaseModel):
     topic: str
     max_sources: int = 25
     year_from: int | None = None
+    is_medical: bool | None = None  # berilmasa — mavzudan avtomatik aniqlanadi
 
 
 class GenerateRequest(BaseModel):
@@ -271,6 +280,7 @@ async def find_literature(req: SourcesRequest):
         raise HTTPException(status_code=400, detail="Mavzuni yozing (kamida 4 belgi).")
 
     limit = max(5, min(int(req.max_sources or 25), 50))
+    med = req.is_medical if req.is_medical is not None else bool(_MED_RE.search(topic))
 
     # Mavzuni inglizcha kalit so'zlarga aylantiramiz (bazalar inglizchani indekslaydi)
     try:
@@ -279,7 +289,9 @@ async def find_literature(req: SourcesRequest):
         logger.exception("Qidiruv so'rovini tayyorlab bo'lmadi")
         search_query = topic
 
-    found = await sources_service.find_sources(search_query, prefer_medical=True, max_results=limit)
+    found = await sources_service.find_sources_for_literature(
+        search_query, prefer_medical=med, max_results=limit
+    )
 
     # Kam natijada so'rovni kengaytiramiz
     words = search_query.split()
@@ -289,7 +301,9 @@ async def find_literature(req: SourcesRequest):
         wider = " ".join(words[:cut])
         if wider == search_query:
             continue
-        alt = await sources_service.find_sources(wider, prefer_medical=True, max_results=limit)
+        alt = await sources_service.find_sources_for_literature(
+            wider, prefer_medical=med, max_results=limit
+        )
         if len(alt) > len(found):
             found, search_query = alt, wider
 

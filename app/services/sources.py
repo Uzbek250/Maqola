@@ -471,6 +471,74 @@ async def search_crossref(query: str, max_results: int = 15) -> list[dict]:
     return out[:max_results]
 
 
+async def find_sources_for_literature(
+    query: str,
+    prefer_medical: bool = True,
+    max_results: int = 25,
+) -> list[dict]:
+    """
+    Adabiyot ro'yxati uchun qidiruv (maqola yozilmaydi).
+
+    Farqi: natijalar API relevance tartibida qoladi — `_quality_score` bilan
+    qayta saralanmaydi. Aks holda tasodifiy yuqori iqtibosli maqola birinchi
+    chiqib ketadi (masalan, ta'lim mavzusida saraton maqolasi).
+
+    Ikkala baza ham so'raladi: tibbiyotda PubMed birinchi, boshqa sohalarda
+    Crossref birinchi (u barcha fanlarni qamraydi).
+    """
+    global SEARCH_STATS
+
+    raw_pool = max_results * 2
+    order = (
+        [("PubMed", search_pubmed), ("Crossref", search_crossref)]
+        if prefer_medical
+        else [("Crossref", search_crossref), ("PubMed", search_pubmed)]
+    )
+
+    per_db: dict = {}
+    results: list[dict] = []
+
+    for name, fn in order:
+        if len(results) >= raw_pool:
+            break
+        try:
+            got = await fn(query, raw_pool - len(results))
+            per_db[name] = len(got)
+            results.extend(got)
+        except Exception as e:
+            logger.warning("%s xatosi: %s", name, e)
+            per_db[name] = 0
+
+    if len(results) < raw_pool:
+        try:
+            extra = await search_semantic_scholar(query, raw_pool - len(results))
+            per_db["Semantic Scholar"] = len(extra)
+            results.extend(extra)
+        except Exception as e:
+            logger.warning("Semantic Scholar xatosi: %s", e)
+
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for r in results:
+        key = (r.get("title") or "").strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(r)
+
+    selected = unique[:max_results]
+    SEARCH_STATS = {
+        "query": query,
+        "per_database": per_db,
+        "retrieved_raw": len(results),
+        "duplicates_removed": len(results) - len(unique),
+        "after_screening": len(unique),
+        "selected": len(selected),
+        "max_requested": max_results,
+    }
+    logger.info("Adabiyot qidiruvi statistikasi: %s", SEARCH_STATS)
+    return selected
+
+
 async def find_sources(
     query: str,
     prefer_medical: bool = True,
