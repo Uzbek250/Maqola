@@ -74,7 +74,9 @@ AI_DISCLOSURE_TEXT = [
 
 
 def build_docx(title: str, article_text: str, sources: list[dict],
-               citation_style: str = "vancouver", ai_disclosure: bool = False) -> bytes:
+               citation_style: str = "vancouver", ai_disclosure: bool = False,
+               abstract: dict | None = None, keywords: list | None = None,
+               author: dict | None = None) -> bytes:
     doc = Document()
 
     # Maqolaning O'Z H1 sarlavhasi bo'lsa — hujjat sarlavhasi sifatida shuni ishlatamiz.
@@ -92,6 +94,38 @@ def build_docx(title: str, article_text: str, sources: list[dict],
                 body_blocks = blocks[1:]
 
     doc.add_heading(doc_title, level=1)
+
+    # --- Muallif bloki (ism + ilmiy maqom + muassasa)
+    author = author or {}
+    if author.get("name"):
+        p = doc.add_paragraph()
+        p.add_run(author["name"]).bold = True
+        if author.get("degree"):
+            p.add_run(f", {author['degree']}").font.size = Pt(11)
+        for line in (author.get("affiliation"), author.get("city"), author.get("email")):
+            if line:
+                doc.add_paragraph(line).style.font.size = Pt(10)
+        if author.get("orcid"):
+            doc.add_paragraph(f"ORCID: {author['orcid']}").style.font.size = Pt(10)
+
+    # --- Annotatsiya (strukturali yoki oddiy matn)
+    abstract = abstract or {}
+    parts = [(k, abstract.get(k)) for k in ("background", "methods", "results", "conclusions")
+             if abstract.get(k)]
+    if not parts and abstract.get("text"):
+        parts = [("", abstract["text"])]
+    if parts:
+        doc.add_heading("Abstract", level=2)
+        for label, txt in parts:
+            ap = doc.add_paragraph()
+            if label:
+                ap.add_run(label.capitalize() + ": ").bold = True
+            ap.add_run(_clean_inline(str(txt))).font.size = Pt(10)
+
+    if keywords:
+        kp = doc.add_paragraph()
+        kp.add_run("Keywords: ").bold = True
+        kp.add_run(", ".join(str(k) for k in keywords)).font.size = Pt(10)
 
     for block in body_blocks:
         # Markdown sarlavha: "# ...", "## ..." -> Word sarlavhasi
@@ -194,7 +228,10 @@ def build_uz_docx(article_text: str, sources: list[dict], tri: dict,
 
     # --- Muallif bloki
     name = author.get("name") or "[MUALLIF F.I.SH.]"
-    doc.add_paragraph(name).runs[0].bold = True
+    np = doc.add_paragraph()
+    np.add_run(name).bold = True
+    if author.get("degree"):
+        np.add_run(f", {author['degree']}").font.size = Pt(11)
     for line in (author.get("affiliation"), author.get("city"), author.get("email")):
         if line:
             doc.add_paragraph(line)

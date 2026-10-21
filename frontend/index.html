@@ -292,7 +292,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&l
 const ls = (k, v) => { try { return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch (e) { return null; } };
 const lsd = (k, v) => { try { return v === undefined ? JSON.parse(localStorage.getItem(k) || "null") : localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } };
 
-const AU = [["name","To'liq ism"],["affiliation","Muassasa"],["city","Shahar, davlat"],["email","Email"],["orcid","ORCID"]];
+const AU = [["name","To'liq ism"],["degree","Ilmiy maqom"],["affiliation","Muassasa"],["city","Shahar, davlat"],["email","Email"],["orcid","ORCID"]];
 const EX = [
   ["Orol dengizi va iqlim","Orol dengizi qurishining mintaqa iqlimiga ta'siri"],
   ["Shaxsiy ma'lumotlar himoyasi","Raqamli shaxsiy ma'lumotlarni himoya qilish: GDPR va O'zbekiston qonunchiligi"],
@@ -601,7 +601,23 @@ function report(d){
   const r = d.review_summary || {};
   const c = d.compliance;
   const t = d.trilingual;
-  let h = `<div class="box"><b>Sifat tekshiruvi</b>
+
+  let h = "";
+
+  // Annotatsiya va kalit so'zlar
+  const ab = d.abstract || {};
+  const abParts = [["background","Background"],["methods","Methods"],
+                   ["results","Results"],["conclusions","Conclusions"]].filter(([k]) => ab[k]);
+  const kw = d.keywords || [];
+  if (abParts.length || ab.text || kw.length){
+    h += `<div class="box"><b>Annotatsiya va kalit so'zlar</b>`;
+    if (!abParts.length && ab.text) h += `<p>${esc(ab.text)}</p>`;
+    h += abParts.map(([k, label]) => `<p><b>${label}:</b> ${esc(ab[k])}</p>`).join("");
+    if (kw.length) h += `<p><b>Kalit so'zlar:</b> ${esc(kw.join(", "))}</p>`;
+    h += `</div>`;
+  }
+
+  h += `<div class="box"><b>Sifat tekshiruvi</b>
     <p>${esc(r.manbalarga_moslik || "—")}</p>
     <p>${esc(r.umumiy_baho || "")}</p></div>`;
 
@@ -963,8 +979,22 @@ $("uname").onchange = () => ls("maqola_user", $("uname").value.trim());
 document.querySelectorAll("#lang,#dom,#ms,#cs,#tp,#jr,#ai").forEach(el => el.addEventListener("change", saveSettings));
 
 /* ---------------- ishga tushish ---------------- */
-$("au").innerHTML = AU.map(([k, p]) =>
-  `<div class="${k === "name" || k === "affiliation" ? "full" : ""}"><input id="a_${k}" placeholder="${p}" autocomplete="off"></div>`).join("");
+$("au").innerHTML = AU.map(([k, p]) => {
+  const full = (k === "name" || k === "affiliation") ? "full" : "";
+  if (k === "degree"){
+    return `<div class="${full}"><label for="a_degree">Ilmiy maqom</label>
+      <select id="a_degree">
+        <option value="">— yo'q —</option>
+        <option>PhD</option>
+        <option>DSc</option>
+        <option>dotsent</option>
+        <option>professor</option>
+        <option>katta o'qituvchi</option>
+        <option>o'qituvchi</option>
+      </select></div>`;
+  }
+  return `<div class="${full}"><input id="a_${k}" placeholder="${p}" autocomplete="off"></div>`;
+}).join("");
 
 chips(EX);
 loadSettings();

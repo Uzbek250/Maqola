@@ -228,6 +228,7 @@ class GenerateRequest(BaseModel):
 
     # Muallif bloki (ixtiyoriy) — shablonda tayyor joyga qo'yiladi
     author_name: str = ""
+    author_degree: str = ""  # PhD, DSc, dotsent, professor...
     author_affiliation: str = ""
     author_city: str = ""
     author_email: str = ""
@@ -680,6 +681,7 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
         "udk": udk_info.get("udk", ""),
         "author": {
             "name": req.author_name,
+            "degree": req.author_degree,
             "affiliation": req.author_affiliation,
             "city": req.author_city,
             "email": req.author_email,
@@ -711,6 +713,9 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
             for s in found_sources
         ],
         "review_summary": review,
+        # Annotatsiya va kalit so'zlar — natijada ham ko'rinadi, hujjatga ham tushadi
+        "abstract": meta.get("structured_abstract") or {},
+        "keywords": meta.get("keywords") or [],
         # To'liq matn statistikasi — mijoz qancha manba to'liq o'qilganini ko'radi
         "full_text": ft_stats,
         # Muvofiqlik hisoboti (Bosqich 2) — qisqa ko'rinish
@@ -870,6 +875,9 @@ def _build_docx_for_session(data: dict) -> bytes:
         sources=data["sources"],
         citation_style=data["citation_style"],
         ai_disclosure=data.get("ai_disclosure", False),
+        abstract=(data.get("meta") or {}).get("structured_abstract") or None,
+        keywords=(data.get("meta") or {}).get("keywords") or None,
+        author=data.get("author") or {},
     )
 
 
