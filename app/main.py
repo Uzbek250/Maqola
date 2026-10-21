@@ -198,6 +198,10 @@ class TopicRequest(BaseModel):
     direction: str
 
 
+class DisciplinesRequest(BaseModel):
+    topic: str
+
+
 class SourcesRequest(BaseModel):
     """Faqat adabiyot qidiruvi — maqola yozilmaydi."""
     topic: str
@@ -235,8 +239,11 @@ class GenerateRequest(BaseModel):
     author_orcid: str = ""
 
     # Yig'iladigan manbalar soni. Sharh maqolasi uchun 10 ta juda kam
-    # (tanqid: "nafas tizimi kabi keng mavzu uchun 10 ta manba yetarli emas").
     max_sources: int = 25
+
+    # Tanlangan ilmiy yo'nalish (endokrinologiya, nevrologiya...). Bo'sh bo'lsa —
+    # maqola mavzuning umumiy kontekstida yoziladi.
+    discipline: str = ""
 
     # Foydalanuvchi ismi — frontend bir marta so'raydi va saqlab qo'yadi.
     # Backend shu ism bo'yicha so'rovlar sonini hisoblaydi (frontend ko'rmaydi).
@@ -266,6 +273,24 @@ async def get_topics(req: TopicRequest):
             status_code=502,
             detail="AI xizmatiga ulanib bo'lmadi. Bir ozdan keyin qayta urinib ko'ring.",
         )
+
+
+@app.post("/disciplines")
+async def list_disciplines(req: DisciplinesRequest):
+    """
+    Mavzuga mos ilmiy yo'nalishlar ro'yxati (masalan: endokrinologiya,
+    nevrologiya, kardiologiya). Foydalanuvchi birini tanlasa — maqola shu
+    yo'nalish nuqtai nazaridan yoziladi.
+    """
+    topic = (req.topic or "").strip()
+    if len(topic) < 4:
+        raise HTTPException(status_code=400, detail="Mavzuni yozing (kamida 4 belgi).")
+    try:
+        items = await gpt_service.suggest_disciplines(topic)
+    except Exception:
+        logger.exception("Yo'nalishlarni aniqlab bo'lmadi")
+        items = []
+    return {"topic": topic, "disciplines": items}
 
 
 @app.post("/sources")
@@ -491,6 +516,7 @@ async def _run_pipeline(req: GenerateRequest, job: dict | None = None) -> dict:
                 search_query=search_query,
                 databases=databases,
                 search_date=time.strftime("%Y-%m-%d"),
+                discipline=req.discipline,
             )
             logger.info("Bo'lim-bo'lim yozildi: %s ta mavzu", len(themes))
         except Exception:

@@ -51,6 +51,7 @@ button{font:inherit;cursor:pointer;color:inherit}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:none;border:1px solid var(--line);background:transparent;border-radius:999px;padding:8px 14px;font-size:14px;transition:border-color .15s,background .15s}
 .chip:hover{border-color:var(--acc);background:var(--acc-t)}
+.chip.on{border-color:var(--acc);background:var(--acc-t);color:var(--acc);font-weight:700}
 .row{display:flex;gap:18px;padding:10px 0 2px;flex-wrap:wrap}
 .link{background:none;border:0;padding:0;color:var(--acc);cursor:pointer;font-size:14px;font-weight:600}
 .link:hover{text-decoration:underline}
@@ -190,6 +191,12 @@ button{font:inherit;cursor:pointer;color:inherit}
       <button class="go" id="gobtn"><span id="goLabel">Maqola yaratish</span> <span aria-hidden="true">→</span></button>
     </div>
     <div class="chips" id="chips" role="list"></div>
+
+    <div id="discWrap" style="display:none;margin-top:4px">
+      <div class="mut" style="margin-bottom:6px">Yo'nalishni tanlang — maqola shu nuqtai nazardan yoziladi</div>
+      <div class="chips" id="discChips" style="padding:0 0 4px"></div>
+    </div>
+
     <div class="row">
       <button class="link" id="sug">✨ Mavzu g'oyalari</button>
       <button class="link" id="last" style="display:none">↺ Oxirgi maqola</button>
@@ -330,6 +337,37 @@ let cancelFlag = false;
 let lastJob = null;
 let mode = "article";
 let LIT = [];
+let DISC = [];
+let disc = "";
+let discTopic = "";
+let discTimer = null;
+
+/* ---------------- yo'nalishlar ---------------- */
+async function loadDisciplines(){
+  const t = $("topic").value.trim();
+  if (t.length < 6 || t === discTopic) return;
+  discTopic = t;
+  $("discWrap").style.display = "block";
+  $("discChips").innerHTML = "<span class='mut'>Yo'nalishlar aniqlanmoqda…</span>";
+  try {
+    const r = await fetch(API + "/disciplines", {
+      method: "POST", headers: H, body: JSON.stringify({ topic: t })
+    });
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    DISC = d.disciplines || [];
+    if (!DISC.length){ $("discWrap").style.display = "none"; return; }
+    renderDisc();
+  } catch (e){
+    $("discWrap").style.display = "none";
+  }
+}
+
+function renderDisc(){
+  const items = [`<button type="button" class="chip${disc === "" ? " on" : ""}" data-d="">Yo'nalishsiz</button>`]
+    .concat(DISC.map(x => `<button type="button" class="chip${x === disc ? " on" : ""}" data-d="${esc(x)}">${esc(x)}</button>`));
+  $("discChips").innerHTML = items.join("");
+}
 
 /* ---------------- rejim ---------------- */
 function setMode(m){
@@ -338,6 +376,7 @@ function setMode(m){
   [...$("modes").children].forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === m)));
   $("litOpts").style.display = lit ? "grid" : "none";
   $("settings").style.display = lit ? "none" : "";
+  if (lit) $("discWrap").style.display = "none";
   $("topic").placeholder = lit ? "Mavzu (masalan: Aral Sea climate change)" : "Maqola mavzusi…";
   $("goLabel").textContent = lit ? "Manbalarni topish" : "Maqola yaratish";
   $("err").textContent = "";
@@ -482,7 +521,8 @@ async function go(){
     ai_disclosure: $("ai").checked,
     user_name: $("uname").value.trim(),
     journal: $("jr").value,
-    template: $("tp").value
+    template: $("tp").value,
+    discipline: disc
   };
   AU.forEach(([k]) => { body["author_" + k] = ($("a_" + k)?.value || "").trim(); });
 
@@ -877,6 +917,26 @@ $("topic").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); start(); }
 });
 
+$("topic").addEventListener("input", () => {
+  clearTimeout(discTimer);
+  disc = "";
+  const t = $("topic").value.trim();
+  if (t.length < 6){
+    $("discWrap").style.display = "none";
+    discTopic = "";
+    return;
+  }
+  if (t === discTopic) return;
+  discTimer = setTimeout(loadDisciplines, 1200);
+});
+
+$("discChips").addEventListener("click", e => {
+  const b = e.target.closest(".chip");
+  if (!b) return;
+  disc = b.dataset.d || "";
+  renderDisc();
+});
+
 $("modes").addEventListener("click", e => {
   const b = e.target.closest("button[data-mode]");
   if (b) setMode(b.dataset.mode);
@@ -905,7 +965,7 @@ $("litList").addEventListener("click", async e => {
 
 $("chips").addEventListener("click", e => {
   const b = e.target.closest(".chip");
-  if (b){ $("topic").value = b.dataset.v; $("topic").focus(); }
+  if (b){ $("topic").value = b.dataset.v; $("topic").focus(); loadDisciplines(); }
 });
 
 $("sug").onclick = async () => {

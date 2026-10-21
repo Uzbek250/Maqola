@@ -6,7 +6,9 @@ GPT API: 3 bosqichli yozish tizimi.
 
 MUHIM: har bosqichda "faqat berilgan manbalarga tayan, hech narsa to'qima" qat'iy ta'kidlanadi.
 """
+import json
 import logging
+import re
 
 import httpx
 from app.config import OPENAI_API_KEY, GPT_MODEL
@@ -264,6 +266,32 @@ def word_range(source_count: int, journal_profile: dict | None = None) -> tuple[
         hi = min(hi, int(jl))
         lo = min(lo, int(hi * 0.8))
     return int(lo), int(hi)
+
+
+async def suggest_disciplines(topic: str) -> list[str]:
+    """
+    Mavzuga mos ilmiy yo'nalishlarni taklif qiladi (masalan: endokrinologiya,
+    nevrologiya, kardiologiya). Foydalanuvchi birini tanlasa — maqola aynan
+    shu nuqtai nazardan yoziladi.
+    """
+    prompt = f"""Research topic: {topic}
+
+List 6 academic disciplines or subfields that could study this topic.
+Return ONLY a JSON array of short strings, in the SAME LANGUAGE as the topic.
+Example: ["Endocrinology", "Neurology", "Cardiology", "Public Health", "Pharmacology", "Nutrition"]
+No explanation, no markdown."""
+    try:
+        raw = await _call_gpt(
+            "You suggest academic disciplines. Output only a JSON array.",
+            prompt, temperature=0.3, max_tokens=220,
+        )
+        m = re.search(r"\[.*?\]", raw, re.S)
+        data = json.loads(m.group(0) if m else raw)
+        items = [str(x).strip() for x in data if str(x).strip()]
+        return items[:8]
+    except Exception as e:
+        logger.warning("Yo'nalishlarni aniqlab bo'lmadi: %s", str(e)[:120])
+        return []
 
 
 async def to_search_query(topic: str) -> str:

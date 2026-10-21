@@ -387,7 +387,7 @@ async def write_article_structured(
     topic: str, sources: list[dict], language: str = "en",
     journal_profile: dict | None = None, search_stats: dict | None = None,
     search_query: str = "", databases: list[str] | None = None,
-    search_date: str = "", route=None,
+    search_date: str = "", route=None, discipline: str = "",
 ) -> tuple[str, list[dict]]:
     """
     Maqolani bo'lim-bo'lim yozadi va birlashtiradi.
@@ -397,8 +397,17 @@ async def write_article_structured(
     jp = journal_profile or {}
     t = TITLES.get(language, TITLES["en"])
 
+    # Yo'nalish tanlangan bo'lsa — yozish promptlarida shu nuqtai nazar ko'rsatiladi.
+    # Sarlavha va metama'lumotlar o'zgarmaydi (ular req.topic dan olinadi).
+    write_topic = topic
+    if discipline:
+        write_topic = (
+            f"{topic}\n\nFOCUS DISCIPLINE: {discipline}. "
+            f"The entire article must be written from the perspective of {discipline}."
+        )
+
     # 1) Mavzular (kod nazorat qiladi)
-    themes = await plan_themes(topic, sources, language)
+    themes = await plan_themes(write_topic, sources, language)
 
     # So'z byudjeti — KOD belgilaydi (manba soniga qarab), model emas
     budgets = section_budgets(themes, len(sources), jp.get("word_limit_main_text"))
@@ -438,7 +447,7 @@ async def write_article_structured(
         "Kirish: mavzuning dolzarbligi, nima ma'lum va nima noma'lum ekani. "
         "OXIRIDA aniq tadqiqot savoli/maqsadi va bu sharh mavjud bilimga nima "
         "qo'shishi bo'lsin. Umumiy darslik uslubida yozma.",
-        intro_sources, topic, language, budgets["intro"],
+        intro_sources, write_topic, language, budgets["intro"],
         all_source_count=len(sources),
     )
 
@@ -461,7 +470,7 @@ async def write_article_structured(
             f"«{th['title']}» mavzusini chuqur yorit. Berilgan {len(ts)} ta manbani "
             f"O'ZARO taqqoslab yoz, kamida uchtasini ishlat. Manbalar orasida zid "
             f"natijalar bo'lsa, shuni aniq ayt va mumkin bo'lgan sababini ko'rsat.",
-            ts, topic, language, budgets["themes"][i - 1],
+            ts, write_topic, language, budgets["themes"][i - 1],
             context="; ".join(x["title"] for x in themes if x is not th),
             all_source_count=len(sources),
         )
@@ -477,7 +486,7 @@ async def write_article_structured(
         "Umumiy muhokama: bo'limlardagi dalillarni BIRGALIKDA talqin qil. "
         "Qarama-qarshiliklarni hal qilishga harakat qil, klinik/amaliy ahamiyatini "
         "ko'rsat, dalil kuchini baholang (dalil kuchli yoki zaif, nima uchun).",
-        disc_sources, topic, language, budgets["discussion"],
+        disc_sources, write_topic, language, budgets["discussion"],
         context="; ".join(x["title"] for x in themes),
         all_source_count=len(sources),
     )
@@ -490,7 +499,7 @@ async def write_article_structured(
         t["limitations"],
         "Cheklovlar: bu sharhning cheklovlari (tanlab olingan, manba soni, "
         "heterogenlik) va keyingi tadqiqotlar uchun yo'nalishlar.",
-        lim_sources, topic, language, budgets["limitations"],
+        lim_sources, write_topic, language, budgets["limitations"],
         all_source_count=len(sources),
     )
 
@@ -501,7 +510,7 @@ async def write_article_structured(
         t["conclusion"],
         "Xulosa: 3-5 gap. Faqat matnda allaqachon aytilgan dalillardan kelib "
         "chiqib, asosiy xulosani ber. Yangi fakt yoki yangi manba kiritma.",
-        relabel(sources[:min(len(sources), 10)]), topic, language,
+        relabel(sources[:min(len(sources), 10)]), write_topic, language,
         budgets["conclusion"],
         all_source_count=len(sources),
     )
